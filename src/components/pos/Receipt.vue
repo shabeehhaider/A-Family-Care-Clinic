@@ -1,69 +1,80 @@
 <template>
   <!-- 
-    Receipt Component
+    Receipt Component - Enhanced Design
     
-    Generates an 80mm thermal receipt layout.
-    This component is hidden during normal use and only shown when printing.
-    Uses @media print styles to ensure proper formatting on thermal printers.
+    Professional 80mm thermal receipt with clinic branding.
+    Features:
+    - Clinic logo image
+    - Clean typography with proper spacing
+    - Visual hierarchy for easy reading
+    - Optimized for thermal printing
   -->
   <div class="receipt-container" id="receipt">
     <div class="receipt">
-      <!-- Clinic Header -->
+      <!-- Clinic Header with Logo -->
       <div class="receipt-header">
-        <!-- Clinic Logo (text-based for thermal compatibility) -->
-        <div class="clinic-logo">
-          <svg class="logo-icon" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
-          </svg>
+        <img 
+          :src="logoUrl" 
+          alt="A Family Care Clinic" 
+          class="clinic-logo"
+        />
+        <div class="clinic-tagline">"Where Families Heal Together"</div>
+        <div class="doctor-info">
+          <span class="doctor-name">Dr. Syeda Ayesha Arsalan</span>
+          <span class="doctor-title">General Physician & Child Specialist</span>
+          <span class="doctor-qual">MBBS (J.S.M.U) FCPS PEADS (N.I.C.H)</span>
         </div>
-        <h1 class="clinic-name">HEALTH CLINIC</h1>
-        <p class="clinic-address">123 Medical Street, City</p>
-        <p class="clinic-phone">Tel: +92 300 1234567</p>
+        <div class="clinic-contacts">
+          <span>📞 0333-2976328 & 0333-2215535</span>
+        </div>
       </div>
 
-      <div class="divider"></div>
+      <div class="divider double"></div>
 
       <!-- Receipt Info -->
       <div class="receipt-info">
-        <div class="info-row">
-          <span class="label">Receipt #:</span>
-          <span class="value">{{ data.receiptNumber }}</span>
+        <div class="receipt-number">
+          <span class="receipt-label">RECEIPT</span>
+          <span class="receipt-id">#{{ data.receiptNumber }}</span>
         </div>
-        <div class="info-row">
-          <span class="label">Date:</span>
-          <span class="value">{{ data.date }}</span>
+        <div class="datetime-row">
+          <span>📅 {{ data.date }}</span>
+          <span>🕐 {{ data.time }}</span>
         </div>
-        <div class="info-row">
-          <span class="label">Time:</span>
-          <span class="value">{{ data.time }}</span>
-        </div>
-        <div v-if="data.patientName" class="info-row">
-          <span class="label">Patient:</span>
-          <span class="value">{{ data.patientName }}</span>
-        </div>
-        <div v-if="data.patientPhone" class="info-row">
-          <span class="label">Phone:</span>
-          <span class="value">{{ data.patientPhone }}</span>
+        <div v-if="data.patientName || data.patientPhone" class="patient-info">
+          <div v-if="data.patientName" class="patient-row">
+            <span class="icon">👤</span>
+            <span>{{ data.patientName }}</span>
+          </div>
+          <div v-if="data.patientPhone" class="patient-row">
+            <span class="icon">📱</span>
+            <span>{{ data.patientPhone }}</span>
+          </div>
         </div>
       </div>
 
       <div class="divider"></div>
 
-      <!-- Items List -->
+      <!-- Items Section -->
       <div class="items-section">
-        <div class="items-header">
-          <span class="item-name-header">Item</span>
-          <span class="item-qty-header">Qty</span>
-          <span class="item-price-header">Price</span>
-        </div>
+        <div class="section-title">BILLING DETAILS</div>
         
-        <div class="items-list">
-          <div v-for="item in data.items" :key="item.id" class="item-row">
-            <span class="item-name">{{ item.name }}</span>
-            <span class="item-qty">{{ item.quantity }}</span>
-            <span class="item-price">{{ (item.price * item.quantity).toLocaleString() }}</span>
-          </div>
-        </div>
+        <table class="items-table">
+          <thead>
+            <tr>
+              <th class="col-item">Description</th>
+              <th class="col-qty">Qty</th>
+              <th class="col-price">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="item in data.items" :key="item.id" class="item-row">
+              <td class="col-item">{{ item.name }}</td>
+              <td class="col-qty">{{ item.quantity }}</td>
+              <td class="col-price">{{ (item.price * item.quantity).toLocaleString() }}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
 
       <div class="divider"></div>
@@ -71,20 +82,23 @@
       <!-- Billing Summary -->
       <div class="billing-section">
         <div class="billing-row">
-          <span>Subtotal:</span>
+          <span>Subtotal</span>
           <span>Rs. {{ data.subtotal.toLocaleString() }}</span>
         </div>
         <div v-if="data.discount > 0" class="billing-row discount">
-          <span>Discount{{ data.discountType === 'percentage' ? ` (${data.discountValue}%)` : '' }}:</span>
+          <span>Discount{{ data.discountType === 'percentage' ? ` (${data.discountValue}%)` : '' }}</span>
           <span>- Rs. {{ data.discount.toLocaleString() }}</span>
         </div>
-        <div v-if="data.tax > 0" class="billing-row">
-          <span>Tax ({{ data.taxRate }}%):</span>
+        <div v-if="data.tax > 0" class="billing-row tax">
+          <span>Tax ({{ data.taxRate }}%)</span>
           <span>Rs. {{ data.tax.toLocaleString() }}</span>
         </div>
-        <div class="billing-row total">
-          <span>GRAND TOTAL:</span>
-          <span>Rs. {{ data.grandTotal.toLocaleString() }}</span>
+        
+        <div class="total-section">
+          <div class="total-row">
+            <span class="total-label">GRAND TOTAL</span>
+            <span class="total-amount">Rs. {{ data.grandTotal.toLocaleString() }}</span>
+          </div>
         </div>
       </div>
 
@@ -92,20 +106,27 @@
 
       <!-- Payment Info -->
       <div class="payment-section">
-        <div class="payment-row">
-          <span>Payment Method:</span>
-          <span class="payment-method">{{ data.paymentMethod }}</span>
+        <div class="payment-badge">
+          <span class="payment-icon">{{ getPaymentIcon(data.paymentMethod) }}</span>
+          <span class="payment-text">Paid via {{ data.paymentMethod }}</span>
         </div>
       </div>
 
-      <div class="divider"></div>
+      <div class="divider double"></div>
 
       <!-- Footer -->
       <div class="receipt-footer">
-        <p class="footer-message">✦ Get well soon! ✦</p>
-        <p class="footer-thanks">Thank you for visiting Health Clinic</p>
+        <div class="footer-message">
+          <span class="heart">💚</span>
+          <span>Get well soon!</span>
+          <span class="heart">💚</span>
+        </div>
+        <p class="footer-thanks">Thank you for trusting A Family Care Clinic</p>
+        <div class="services-list">
+          General OPD | Children's OPD | Gynae OPD | Physiotherapy | Pharmacy
+        </div>
         <div class="barcode">
-          ||| |||| || ||| |||| || |||
+          ||||| |||| ||| |||| ||||| || ||| |||| |||||
         </div>
       </div>
     </div>
@@ -114,28 +135,13 @@
 
 <script setup>
 /**
- * Receipt Component
+ * Receipt Component - A Family Care Clinic
  * 
- * Renders a printable 80mm thermal receipt.
- * Designed for thermal printers commonly used in POS systems.
- * 
- * Props:
- * - data: Object containing all receipt information
- *   - receiptNumber: Unique receipt identifier
- *   - date: Transaction date
- *   - time: Transaction time
- *   - patientName: Optional patient name
- *   - patientPhone: Optional patient phone
- *   - items: Array of purchased items
- *   - subtotal: Sum before discounts/tax
- *   - discount: Discount amount applied
- *   - discountType: 'flat' or 'percentage'
- *   - discountValue: Original discount input value
- *   - tax: Tax amount
- *   - taxRate: Tax percentage
- *   - grandTotal: Final amount to pay
- *   - paymentMethod: Cash/Card/Online
+ * Professional thermal receipt (80mm) with clinic branding.
+ * Optimized for thermal printer output.
  */
+
+import logoImage from '@/assets/logo.jpeg'
 
 defineProps({
   data: {
@@ -159,6 +165,21 @@ defineProps({
     })
   }
 })
+
+// Logo URL for template
+const logoUrl = logoImage
+
+/**
+ * Get payment method icon
+ */
+const getPaymentIcon = (method) => {
+  const icons = {
+    'Cash': '💵',
+    'Card': '💳',
+    'Online': '📱'
+  }
+  return icons[method] || '💰'
+}
 </script>
 
 <style scoped>
@@ -167,65 +188,131 @@ defineProps({
   display: none;
 }
 
-/* Receipt Base Styles */
+/* Receipt Base */
 .receipt {
   width: 80mm;
-  padding: 3mm;
-  font-family: 'Courier New', monospace;
-  font-size: 12px;
-  line-height: 1.4;
+  padding: 4mm;
+  font-family: 'Segoe UI', 'Arial', sans-serif;
+  font-size: 11px;
+  line-height: 1.5;
   color: #000;
   background: #fff;
 }
 
-/* Header Styles */
+/* Header */
 .receipt-header {
   text-align: center;
-  margin-bottom: 2mm;
+  padding-bottom: 3mm;
 }
 
 .clinic-logo {
+  width: 70mm;
+  height: auto;
+  margin: 0 auto 2mm;
+  display: block;
+}
+
+.clinic-tagline {
+  font-style: italic;
+  font-size: 9px;
+  color: #666;
   margin-bottom: 2mm;
 }
 
-.logo-icon {
-  width: 30px;
-  height: 30px;
-  margin: 0 auto;
+.doctor-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1mm;
+  margin-bottom: 2mm;
 }
 
-.clinic-name {
-  font-size: 16px;
-  font-weight: bold;
-  margin: 0;
-  letter-spacing: 1px;
+.doctor-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: #1e40af;
 }
 
-.clinic-address,
-.clinic-phone {
+.doctor-title {
   font-size: 10px;
-  margin: 1mm 0;
+  font-weight: 600;
 }
 
-/* Divider */
+.doctor-qual {
+  font-size: 8px;
+  color: #666;
+}
+
+.clinic-contacts {
+  font-size: 10px;
+  font-weight: 500;
+}
+
+/* Dividers */
 .divider {
-  border-top: 1px dashed #000;
-  margin: 2mm 0;
+  border: none;
+  border-top: 1px dashed #999;
+  margin: 3mm 0;
+}
+
+.divider.double {
+  border-top: 1px solid #333;
+  border-bottom: 1px solid #333;
+  height: 2px;
 }
 
 /* Receipt Info */
 .receipt-info {
-  font-size: 11px;
+  text-align: center;
 }
 
-.info-row {
+.receipt-number {
   display: flex;
-  justify-content: space-between;
-  margin: 1mm 0;
+  justify-content: center;
+  align-items: center;
+  gap: 2mm;
+  margin-bottom: 2mm;
 }
 
-.label {
-  font-weight: bold;
+.receipt-label {
+  background: #000;
+  color: #fff;
+  padding: 1mm 3mm;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+.receipt-id {
+  font-size: 11px;
+  font-weight: 600;
+  font-family: 'Courier New', monospace;
+}
+
+.datetime-row {
+  display: flex;
+  justify-content: center;
+  gap: 4mm;
+  font-size: 10px;
+  margin-bottom: 2mm;
+}
+
+.patient-info {
+  background: #f5f5f5;
+  padding: 2mm;
+  border-radius: 1mm;
+  margin-top: 2mm;
+}
+
+.patient-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2mm;
+  font-size: 10px;
+}
+
+.patient-row .icon {
+  font-size: 10px;
 }
 
 /* Items Section */
@@ -233,113 +320,171 @@ defineProps({
   margin: 2mm 0;
 }
 
-.items-header {
-  display: flex;
-  justify-content: space-between;
-  font-weight: bold;
+.section-title {
   font-size: 10px;
-  border-bottom: 1px solid #000;
-  padding-bottom: 1mm;
-  margin-bottom: 1mm;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-align: center;
+  background: #f0f0f0;
+  padding: 1.5mm;
+  margin-bottom: 2mm;
 }
 
-.item-name-header {
-  flex: 2;
+.items-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
 }
 
-.item-qty-header,
-.item-price-header {
-  flex: 1;
+.items-table th {
+  font-weight: 700;
+  padding: 1.5mm 1mm;
+  border-bottom: 1px solid #333;
+  text-align: left;
+}
+
+.items-table th.col-qty,
+.items-table th.col-price {
   text-align: right;
 }
 
-.item-row {
-  display: flex;
-  justify-content: space-between;
-  font-size: 11px;
-  margin: 1mm 0;
+.items-table td {
+  padding: 1.5mm 1mm;
+  vertical-align: top;
 }
 
-.item-name {
-  flex: 2;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.items-table .col-item {
+  width: 55%;
 }
 
-.item-qty {
-  flex: 1;
+.items-table .col-qty {
+  width: 15%;
   text-align: center;
 }
 
-.item-price {
-  flex: 1;
+.items-table .col-price {
+  width: 30%;
   text-align: right;
+  font-family: 'Courier New', monospace;
+}
+
+.item-row {
+  border-bottom: 1px dotted #ccc;
+}
+
+.item-row:last-child {
+  border-bottom: none;
 }
 
 /* Billing Section */
 .billing-section {
-  font-size: 11px;
+  font-size: 10px;
 }
 
 .billing-row {
   display: flex;
   justify-content: space-between;
-  margin: 1mm 0;
+  padding: 1mm 0;
 }
 
 .billing-row.discount {
   color: #059669;
 }
 
-.billing-row.total {
-  font-size: 14px;
-  font-weight: bold;
+.billing-row.tax {
+  color: #666;
+}
+
+.total-section {
   margin-top: 2mm;
-  padding-top: 1mm;
-  border-top: 1px solid #000;
+  padding-top: 2mm;
+  border-top: 2px solid #000;
+}
+
+.total-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.total-label {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+}
+
+.total-amount {
+  font-size: 14px;
+  font-weight: 800;
+  font-family: 'Courier New', monospace;
 }
 
 /* Payment Section */
 .payment-section {
+  text-align: center;
+  padding: 2mm 0;
+}
+
+.payment-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2mm;
+  background: linear-gradient(135deg, #d1fae5, #a7f3d0);
+  padding: 2mm 4mm;
+  border-radius: 2mm;
   font-size: 11px;
+  font-weight: 600;
 }
 
-.payment-row {
-  display: flex;
-  justify-content: space-between;
-}
-
-.payment-method {
-  font-weight: bold;
-  text-transform: uppercase;
+.payment-icon {
+  font-size: 14px;
 }
 
 /* Footer */
 .receipt-footer {
   text-align: center;
-  margin-top: 2mm;
+  padding-top: 2mm;
 }
 
 .footer-message {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 2mm;
   font-size: 14px;
-  font-weight: bold;
-  margin: 2mm 0;
+  font-weight: 700;
+  color: #059669;
+  padding: 2mm 0;
+}
+
+.heart {
+  font-size: 12px;
 }
 
 .footer-thanks {
   font-size: 9px;
   color: #666;
+  margin: 1mm 0 2mm;
+}
+
+.services-list {
+  font-size: 7px;
+  color: #888;
+  letter-spacing: 0.3px;
+  padding: 1mm 0;
+  border-top: 1px dotted #ccc;
+  border-bottom: 1px dotted #ccc;
 }
 
 .barcode {
-  font-family: 'Libre Barcode 39', monospace;
-  font-size: 24px;
-  letter-spacing: -2px;
-  margin-top: 2mm;
+  font-family: 'Courier New', monospace;
+  font-size: 20px;
+  letter-spacing: -1px;
+  margin-top: 3mm;
+  color: #333;
 }
 
-/* Print Styles - These override screen styles when printing */
+/* Print Styles */
 @media print {
   .receipt-container {
     display: block !important;
@@ -354,7 +499,21 @@ defineProps({
   .receipt {
     width: 80mm;
     margin: 0;
-    padding: 2mm;
+    padding: 3mm;
+  }
+
+  /* Ensure colors print correctly */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Remove emoji colors for thermal */
+  .footer-message,
+  .payment-badge,
+  .datetime-row,
+  .patient-row {
+    color: #000 !important;
   }
 }
 </style>
