@@ -135,23 +135,52 @@
 
           <!-- Medicines Grid -->
           <div class="products-grid medicines-grid">
-            <button 
+            <div 
               v-for="medicine in filteredMedicines" 
               :key="medicine.id"
-              @click="addToCart(medicine, 'medicine')"
               class="product-card medicine-card"
             >
-              <div class="product-icon medicine-icon">
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                    d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
-                </svg>
+              <!-- Edit & Delete Actions -->
+              <div class="medicine-actions">
+                <button 
+                  @click.stop="openEditMedicine(medicine)"
+                  class="action-icon edit-icon"
+                  title="Edit Price"
+                >
+                  <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                      d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  </svg>
+                </button>
+                <button 
+                  @click.stop="deleteMedicine(medicine.id)"
+                  class="action-icon delete-icon"
+                  title="Delete Medicine"
+                >
+                  <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </button>
               </div>
-              <div class="product-info">
-                <span class="product-name">{{ medicine.name }}</span>
-                <span class="product-price">Rs. {{ medicine.price.toLocaleString() }}</span>
-              </div>
-            </button>
+
+              <!-- Clickable Area for Add to Cart -->
+              <button 
+                @click="addToCart(medicine, 'medicine')"
+                class="medicine-content"
+              >
+                <div class="product-icon medicine-icon">
+                  <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                      d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
+                  </svg>
+                </div>
+                <div class="product-info">
+                  <span class="product-name">{{ medicine.name }}</span>
+                  <span class="product-price">Rs. {{ medicine.price.toLocaleString() }}</span>
+                </div>
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -393,6 +422,83 @@
       </div>
     </Transition>
   </Teleport>
+
+  <!-- Edit Medicine Modal -->
+  <Teleport to="body">
+    <Transition name="modal">
+      <div v-if="showEditMedicineForm" class="modal-overlay" @click.self="closeEditMedicineForm">
+        <div class="modal-container">
+          <div class="modal-header edit-header">
+            <h3 class="modal-title">
+              <svg class="modal-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                  d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              </svg>
+              Edit Medicine Price
+            </h3>
+            <button @click="closeEditMedicineForm" class="modal-close">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          <form @submit.prevent="updateMedicinePrice" class="modal-body">
+            <div class="form-group">
+              <label class="form-label">Medicine Name</label>
+              <div class="medicine-name-display">{{ editingMedicine.name }}</div>
+            </div>
+
+            <div class="form-group">
+              <label for="editMedicinePrice" class="form-label">
+                New Price (Rs.) <span class="required">*</span>
+              </label>
+              <input 
+                id="editMedicinePrice"
+                v-model.number="editingMedicine.newPrice"
+                type="number"
+                min="0"
+                step="0.01"
+                required
+                placeholder="Enter new price"
+                class="form-input"
+                ref="editPriceInput"
+              />
+            </div>
+
+            <div class="price-change-info" v-if="editingMedicine.oldPrice">
+              <span class="old-price">Old: Rs. {{ editingMedicine.oldPrice.toLocaleString() }}</span>
+              <span class="arrow">→</span>
+              <span class="new-price" :class="{ 'higher': editingMedicine.newPrice > editingMedicine.oldPrice, 'lower': editingMedicine.newPrice < editingMedicine.oldPrice }">
+                New: Rs. {{ (editingMedicine.newPrice || 0).toLocaleString() }}
+              </span>
+            </div>
+
+            <div class="form-actions">
+              <button 
+                type="button" 
+                @click="closeEditMedicineForm"
+                class="btn btn-secondary"
+              >
+                Cancel
+              </button>
+              <button 
+                type="submit"
+                class="btn btn-edit"
+                :disabled="!editingMedicine.newPrice || editingMedicine.newPrice <= 0"
+              >
+                <svg class="btn-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                    d="M5 13l4 4L19 7" />
+                </svg>
+                Update Price
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </Transition>
+  </Teleport>
 </template>
 
 <script setup>
@@ -489,6 +595,16 @@ const newMedicine = ref({
   price: null
 })
 const medicineNameInput = ref(null)
+
+// Edit Medicine Form
+const showEditMedicineForm = ref(false)
+const editingMedicine = ref({
+  id: null,
+  name: '',
+  oldPrice: null,
+  newPrice: null
+})
+const editPriceInput = ref(null)
 
 // ============================================
 // COMPUTED
@@ -681,9 +797,73 @@ const addMedicine = () => {
 
   // Close form and reset
   closeMedicineForm()
+}
+
+/**
+ * Delete medicine from medicines array
+ */
+const deleteMedicine = (medicineId) => {
+  const index = medicines.value.findIndex(m => m.id === medicineId)
+  if (index !== -1) {
+    // Also remove from cart if present
+    cartItems.value = cartItems.value.filter(
+      item => !(item.id === medicineId && item.type === 'medicine')
+    )
+    // Remove from medicines list
+    medicines.value.splice(index, 1)
+  }
+}
+
+/**
+ * Open edit medicine modal
+ */
+const openEditMedicine = (medicine) => {
+  editingMedicine.value = {
+    id: medicine.id,
+    name: medicine.name,
+    oldPrice: medicine.price,
+    newPrice: medicine.price
+  }
+  showEditMedicineForm.value = true
+  nextTick(() => {
+    editPriceInput.value?.focus()
+    editPriceInput.value?.select()
+  })
+}
+
+/**
+ * Close edit medicine modal
+ */
+const closeEditMedicineForm = () => {
+  showEditMedicineForm.value = false
+  editingMedicine.value = {
+    id: null,
+    name: '',
+    oldPrice: null,
+    newPrice: null
+  }
+}
+
+/**
+ * Update medicine price
+ */
+const updateMedicinePrice = () => {
+  if (!editingMedicine.value.id || !editingMedicine.value.newPrice) return
   
-  // Optional: Show success message
-  // You can add a toast notification here
+  const medicine = medicines.value.find(m => m.id === editingMedicine.value.id)
+  if (medicine) {
+    medicine.price = Number(editingMedicine.value.newPrice)
+    
+    // Also update in cart if present
+    const cartItem = cartItems.value.find(
+      item => item.id === editingMedicine.value.id && item.type === 'medicine'
+    )
+    if (cartItem) {
+      cartItem.price = Number(editingMedicine.value.newPrice)
+    }
+  }
+  
+  closeEditMedicineForm()
 }
 </script>
 
@@ -1515,5 +1695,157 @@ const addMedicine = () => {
 .modal-enter-from .modal-container,
 .modal-leave-to .modal-container {
   transform: scale(0.9);
+}
+
+/* ============================================
+   MEDICINE CARD ACTIONS (Edit/Delete)
+   ============================================ */
+
+.medicine-card {
+  position: relative;
+  padding: 0;
+  overflow: hidden;
+}
+
+.medicine-actions {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  display: flex;
+  gap: 0.25rem;
+  opacity: 0;
+  transition: opacity 0.2s;
+  z-index: 10;
+}
+
+.medicine-card:hover .medicine-actions {
+  opacity: 1;
+}
+
+.action-icon {
+  width: 1.75rem;
+  height: 1.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 0.375rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.action-icon svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.edit-icon {
+  background: #fef3c7;
+  color: #d97706;
+}
+
+.edit-icon:hover {
+  background: #fcd34d;
+  color: #92400e;
+  transform: scale(1.1);
+}
+
+.delete-icon {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.delete-icon:hover {
+  background: #fca5a5;
+  color: #991b1b;
+  transform: scale(1.1);
+}
+
+.medicine-content {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 1rem;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.medicine-content:hover {
+  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+}
+
+/* Edit Modal Specific Styles */
+.edit-header {
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+}
+
+.edit-header .modal-title {
+  color: #92400e;
+}
+
+.edit-header .modal-icon {
+  color: #d97706;
+}
+
+.medicine-name-display {
+  padding: 0.75rem 1rem;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+  font-weight: 600;
+  color: #374151;
+}
+
+.price-change-info {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 0.75rem;
+  background: #f9fafb;
+  border-radius: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.old-price {
+  color: #6b7280;
+  text-decoration: line-through;
+}
+
+.arrow {
+  color: #9ca3af;
+  font-size: 1.25rem;
+}
+
+.new-price {
+  font-weight: 600;
+  color: #374151;
+}
+
+.new-price.higher {
+  color: #dc2626;
+}
+
+.new-price.lower {
+  color: #059669;
+}
+
+.btn-edit {
+  background: linear-gradient(135deg, #d97706 0%, #f59e0b 100%);
+  color: white;
+  box-shadow: 0 4px 12px rgba(217, 119, 6, 0.3);
+}
+
+.btn-edit:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(217, 119, 6, 0.4);
+}
+
+.btn-edit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
 }
 </style>
