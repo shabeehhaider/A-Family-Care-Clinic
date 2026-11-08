@@ -123,7 +123,7 @@
         <div v-if="activeTab === 'medicines'" class="medicines-section">
           <!-- Add Medicine Button -->
           <button 
-            @click="showMedicineForm = true"
+            @click="openMedicineForm"
             class="add-medicine-btn"
           >
             <svg class="add-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -153,7 +153,7 @@
                   </svg>
                 </button>
                 <button 
-                  @click.stop="deleteMedicine(medicine.id)"
+                  @click.stop="deleteMedicine(medicine)"
                   class="action-icon delete-icon"
                   title="Delete Medicine"
                 >
@@ -188,7 +188,7 @@
 
     <!-- Right Panel: Checkout -->
     <template #checkout>
-      <div class="checkout-container">
+      <div class="checkout-container" ref="checkoutPanel">
         <!-- Cart Section -->
         <div class="cart-section">
           <ItemList 
@@ -308,7 +308,7 @@
           <!-- Confirm Sale Button -->
           <button 
             @click="confirmSale"
-            :disabled="cartItems.length === 0"
+            :disabled="cartItems.length === 0 || isPrinting"
             class="confirm-btn"
           >
             <svg class="btn-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -344,6 +344,21 @@
       <Receipt :data="receiptData" />
     </template>
   </PosLayout>
+
+  <!-- Mobile Cart Bar (shown only on stacked/mobile layout) -->
+  <div class="mobile-cart-bar no-print">
+    <div class="mobile-cart-info">
+      <span class="mobile-cart-count">{{ cartCount }} {{ cartCount === 1 ? 'item' : 'items' }}</span>
+      <span class="mobile-cart-total">Rs. {{ grandTotal.toLocaleString() }}</span>
+    </div>
+    <button class="mobile-cart-btn" @click="scrollToCheckout">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+      </svg>
+      Checkout
+    </button>
+  </div>
 
   <!-- Medicine Form Modal -->
   <Teleport to="body">
@@ -523,10 +538,16 @@
  * - Grand Total: Subtotal - Discount + Tax
  */
 
-import { ref, computed, nextTick } from 'vue'
+import { ref, computed, nextTick, watch, onUnmounted } from 'vue'
 import PosLayout from '@/components/pos/PosLayout.vue'
 import ItemList from '@/components/pos/ItemList.vue'
 import Receipt from '@/components/pos/Receipt.vue'
+import {
+  STORAGE_KEYS,
+  loadFromStorage,
+  saveToStorage,
+  nextReceiptNumber
+} from '@/utils/storage'
 
 // ============================================
 // DUMMY DATA - Static services and medicines
@@ -543,7 +564,7 @@ const services = ref([
   { id: 's8', name: 'Blood Pressure', price: 100, icon: 'M13 10V3L4 14h7v7l9-11h-7z' }
 ])
 
-const medicines = ref([
+const DEFAULT_MEDICINES = [
   { id: 'm1', name: 'Paracetamol 500mg', price: 50 },
   { id: 'm2', name: 'Amoxicillin 250mg', price: 120 },
   { id: 'm3', name: 'Omeprazole 20mg', price: 80 },
@@ -556,7 +577,10 @@ const medicines = ref([
   { id: 'm10', name: 'Diclofenac 50mg', price: 55 },
   { id: 'm11', name: 'Montelukast 10mg', price: 85 },
   { id: 'm12', name: 'Losartan 50mg', price: 110 }
-])
+]
+
+// Medicines persist across refreshes (added / edited / deleted ones are kept)
+const medicines = ref(loadFromStorage(STORAGE_KEYS.medicines, DEFAULT_MEDICINES))
 
 const paymentMethods = ref([
   { id: 'cash', name: 'Cash', icon: 'M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z' },
@@ -568,25 +592,33 @@ const paymentMethods = ref([
 // STATE
 // ============================================
 
+// In-progress sale is restored after an accidental refresh
+const draft = loadFromStorage(STORAGE_KEYS.draft, {})
+
 // Patient Information
-const patientName = ref('')
-const patientPhone = ref('')
+const patientName = ref(draft.patientName ?? '')
+const patientPhone = ref(draft.patientPhone ?? '')
 
 // Tab & Search
 const activeTab = ref('services')
 const searchQuery = ref('')
 
 // Cart Items
-const cartItems = ref([])
+const cartItems = ref(Array.isArray(draft.cartItems) ? draft.cartItems : [])
 
 // Billing
-const discountType = ref('flat')
-const discountValue = ref(0)
-const enableTax = ref(false)
-const taxRate = ref(0)
+const discountType = ref(draft.discountType ?? 'flat')
+const discountValue = ref(draft.discountValue ?? 0)
+const enableTax = ref(draft.enableTax ?? false)
+const taxRate = ref(draft.taxRate ?? 0)
 
 // Payment
-const selectedPaymentMethod = ref('cash')
+const selectedPaymentMethod = ref(draft.selectedPaymentMethod ?? 'cash')
+
+// Receipt: a frozen snapshot taken when the sale is confirmed (not live-computed),
+// so the number and time printed are those of the actual sale
+const receiptData = ref(createEmptyReceipt())
+const isPrinting = ref(false)
 
 // Medicine Form
 const showMedicineForm = ref(false)
@@ -606,9 +638,16 @@ const editingMedicine = ref({
 })
 const editPriceInput = ref(null)
 
+// Checkout panel (used by mobile cart bar to scroll into view)
+const checkoutPanel = ref(null)
+
 // ============================================
 // COMPUTED
 // ============================================
+
+const cartCount = computed(() => {
+  return cartItems.value.reduce((sum, item) => sum + item.quantity, 0)
+})
 
 const filteredServices = computed(() => {
   if (!searchQuery.value) return services.value
@@ -649,42 +688,93 @@ const grandTotal = computed(() => {
   return subtotal.value - discountAmount.value + taxAmount.value
 })
 
-const receiptData = computed(() => {
-  const now = new Date()
-  return {
-    receiptNumber: generateReceiptNumber(),
-    date: now.toLocaleDateString('en-US', { 
-      year: 'numeric', 
-      month: 'short', 
-      day: 'numeric' 
-    }),
-    time: now.toLocaleTimeString('en-US', { 
-      hour: '2-digit', 
-      minute: '2-digit' 
-    }),
+// ============================================
+// PERSISTENCE (localStorage)
+// ============================================
+
+watch(medicines, (value) => {
+  saveToStorage(STORAGE_KEYS.medicines, value)
+}, { deep: true })
+
+watch(
+  () => ({
     patientName: patientName.value,
     patientPhone: patientPhone.value,
-    items: cartItems.value,
-    subtotal: subtotal.value,
-    discount: discountAmount.value,
+    cartItems: cartItems.value,
     discountType: discountType.value,
     discountValue: discountValue.value,
-    tax: taxAmount.value,
+    enableTax: enableTax.value,
     taxRate: taxRate.value,
-    grandTotal: grandTotal.value,
-    paymentMethod: paymentMethods.value.find(m => m.id === selectedPaymentMethod.value)?.name || 'Cash'
-  }
-})
+    selectedPaymentMethod: selectedPaymentMethod.value
+  }),
+  (value) => saveToStorage(STORAGE_KEYS.draft, value),
+  { deep: true }
+)
 
 // ============================================
 // METHODS
 // ============================================
 
-const generateReceiptNumber = () => {
+function createEmptyReceipt() {
+  return {
+    receiptNumber: '',
+    date: '',
+    time: '',
+    patientName: '',
+    patientPhone: '',
+    items: [],
+    subtotal: 0,
+    discount: 0,
+    discountType: 'flat',
+    discountValue: 0,
+    tax: 0,
+    taxRate: 0,
+    grandTotal: 0,
+    paymentMethod: 'Cash'
+  }
+}
+
+/**
+ * Builds an immutable snapshot of the current sale.
+ * Called once, at the moment the sale is confirmed.
+ */
+const buildReceiptSnapshot = () => {
   const now = new Date()
-  const datePart = now.toISOString().slice(0, 10).replace(/-/g, '')
-  const randomPart = Math.floor(Math.random() * 900 + 100)
-  return `RC-${datePart}-${randomPart}`
+  return {
+    receiptNumber: nextReceiptNumber(),
+    createdAt: now.toISOString(),
+    date: now.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    }),
+    time: now.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit'
+    }),
+    patientName: patientName.value.trim(),
+    patientPhone: patientPhone.value.trim(),
+    // deep copy so later cart edits can't change a printed/saved receipt
+    items: cartItems.value.map(({ id, name, price, quantity, type }) => ({ id, name, price, quantity, type })),
+    subtotal: subtotal.value,
+    discount: discountAmount.value,
+    discountType: discountType.value,
+    discountValue: discountValue.value,
+    tax: taxAmount.value,
+    taxRate: enableTax.value ? taxRate.value : 0,
+    grandTotal: grandTotal.value,
+    paymentMethod: paymentMethods.value.find(m => m.id === selectedPaymentMethod.value)?.name || 'Cash'
+  }
+}
+
+/**
+ * Appends a completed sale to the history in localStorage.
+ * Returns false if storage is unavailable or full.
+ */
+const saveSale = (sale) => {
+  const sales = loadFromStorage(STORAGE_KEYS.sales, [])
+  sales.push(sale)
+  return saveToStorage(STORAGE_KEYS.sales, sales)
 }
 
 const addToCart = (item, type) => {
@@ -729,20 +819,115 @@ const resetAll = () => {
   taxRate.value = 0
   selectedPaymentMethod.value = 'cash'
   searchQuery.value = ''
+  stopWaitingForPrint()
 }
 
-const confirmSale = () => {
+// --- Printing ---------------------------------------------------------
+// Mobile/tablet browsers return from window.print() immediately (the print
+// UI is async), so we must NOT reset on a timer. Instead we wait for the
+// browser to tell us printing finished, via `afterprint` or the print
+// media query switching back off (fallback for browsers that lack it).
+
+let printMediaQuery = null
+
+const onPrintMediaChange = (e) => {
+  if (!e.matches) finishPrint()
+}
+
+function stopWaitingForPrint() {
+  window.removeEventListener('afterprint', finishPrint)
+  printMediaQuery?.removeEventListener?.('change', onPrintMediaChange)
+  printMediaQuery = null
+  isPrinting.value = false
+}
+
+function finishPrint() {
+  if (!isPrinting.value) return
+  stopWaitingForPrint()
+  resetAll()
+}
+
+/**
+ * Sets the printed page to exactly 80mm × (receipt height).
+ * The receipt is hidden on screen, so it is rendered off-screen briefly to
+ * measure it. Without this, browsers fall back to A4 — a PDF becomes a full
+ * page and some thermal drivers feed paper for the whole page length.
+ */
+const setReceiptPageSize = async () => {
+  const container = document.querySelector('.receipt-container')
+  if (!container) return
+
+  // Logo must be loaded or the measured height will be too short
+  const logo = container.querySelector('img')
+  if (logo && !logo.complete) {
+    await new Promise(resolve => {
+      logo.addEventListener('load', resolve, { once: true })
+      logo.addEventListener('error', resolve, { once: true })
+    })
+  }
+
+  // Its parent (.print-area) is also display:none on screen
+  const parent = container.parentElement
+  const saved = [
+    [parent, parent.style.cssText],
+    [container, container.style.cssText]
+  ]
+  parent.style.cssText = 'display:block;position:absolute;left:-10000px;top:0;visibility:hidden;'
+  container.style.cssText = 'display:block;'
+
+  const heightPx = container.getBoundingClientRect().height
+
+  saved.forEach(([el, css]) => { el.style.cssText = css })
+
+  if (!heightPx) return
+
+  const PX_PER_MM = 96 / 25.4
+  const FEED_MM = 6 // a little blank paper so the cutter doesn't clip the last line
+  const heightMm = Math.ceil(heightPx / PX_PER_MM) + FEED_MM
+
+  let styleEl = document.getElementById('receipt-page-size')
+  if (!styleEl) {
+    styleEl = document.createElement('style')
+    styleEl.id = 'receipt-page-size'
+    document.head.appendChild(styleEl)
+  }
+  styleEl.textContent = `@media print { @page { size: 80mm ${heightMm}mm; margin: 0; } }`
+}
+
+const confirmSale = async () => {
   if (cartItems.value.length === 0) {
     alert('Please add items to cart before confirming sale.')
     return
   }
-  
-  setTimeout(() => {
-    window.print()
-    setTimeout(() => {
-      resetAll()
-    }, 500)
-  }, 100)
+  if (isPrinting.value) return
+
+  // Freeze the receipt for this sale (fixed number + time)
+  const sale = buildReceiptSnapshot()
+  receiptData.value = sale
+
+  if (!saveSale(sale)) {
+    alert('Warning: this sale could not be saved to sales history (browser storage is unavailable or full). The receipt will still print.')
+  }
+
+  isPrinting.value = true
+
+  // Let Vue render the receipt before the print dialog captures the page
+  await nextTick()
+  await setReceiptPageSize()
+
+  window.addEventListener('afterprint', finishPrint)
+  if (window.matchMedia) {
+    printMediaQuery = window.matchMedia('print')
+    printMediaQuery.addEventListener?.('change', onPrintMediaChange)
+  }
+
+  window.print()
+}
+
+onUnmounted(stopWaitingForPrint)
+
+const scrollToCheckout = () => {
+  checkoutPanel.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
 const focusNextInput = (event) => {
@@ -802,9 +987,18 @@ const addMedicine = () => {
 /**
  * Delete medicine from medicines array
  */
-const deleteMedicine = (medicineId) => {
+const deleteMedicine = (medicineToDelete) => {
+  const medicineId = medicineToDelete.id
   const index = medicines.value.findIndex(m => m.id === medicineId)
   if (index !== -1) {
+    const inCart = cartItems.value.some(
+      item => item.id === medicineId && item.type === 'medicine'
+    )
+    const message = `Delete "${medicineToDelete.name}"?` +
+      (inCart ? '\n\nIt will also be removed from the current cart.' : '') +
+      '\n\nThis cannot be undone.'
+    if (!window.confirm(message)) return
+
     // Also remove from cart if present
     cartItems.value = cartItems.value.filter(
       item => !(item.id === medicineId && item.type === 'medicine')
@@ -1038,6 +1232,7 @@ const updateMedicinePrice = () => {
 
 .medicines-section {
   flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1077,11 +1272,18 @@ const updateMedicinePrice = () => {
 
 .products-grid {
   flex: 1;
+  min-height: 0;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  /* rows must fit their content; without this, cards with overflow:hidden
+     get squashed to fit the panel height instead of the grid scrolling */
+  grid-auto-rows: max-content;
   gap: 0.875rem;
   overflow-y: auto;
-  padding-right: 0.5rem;
+  /* breathing room so the hover lift (-2px) and shadow aren't clipped by the
+     scroll container; negative margin keeps cards aligned with content above */
+  padding: 0.5rem 0.75rem 1rem 0.5rem;
+  margin: -0.5rem -0.5rem 0;
   align-content: start;
 }
 
@@ -1187,10 +1389,7 @@ const updateMedicinePrice = () => {
 }
 
 .cart-section {
-  flex: 1;
-  min-height: 150px;
-  max-height: 250px;
-  overflow: hidden;
+  flex-shrink: 0;
   margin-bottom: 1rem;
 }
 
@@ -1547,7 +1746,9 @@ const updateMedicinePrice = () => {
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
   width: 100%;
   max-width: 500px;
-  overflow: hidden;
+  max-height: calc(100vh - 2rem);
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
 }
 
 .modal-header {
@@ -1713,13 +1914,20 @@ const updateMedicinePrice = () => {
   right: 0.5rem;
   display: flex;
   gap: 0.25rem;
-  opacity: 0;
   transition: opacity 0.2s;
   z-index: 10;
 }
 
-.medicine-card:hover .medicine-actions {
-  opacity: 1;
+/* Hide actions until hover only on devices with a real mouse; touch users always see them */
+@media (hover: hover) and (pointer: fine) {
+  .medicine-actions {
+    opacity: 0;
+  }
+
+  .medicine-card:hover .medicine-actions,
+  .medicine-actions:focus-within {
+    opacity: 1;
+  }
 }
 
 .action-icon {
@@ -1847,5 +2055,215 @@ const updateMedicinePrice = () => {
   opacity: 0.5;
   cursor: not-allowed;
   transform: none;
+}
+
+/* ============================================
+   MOBILE CART BAR
+   ============================================ */
+
+.mobile-cart-bar {
+  display: none;
+}
+
+/* ============================================
+   RESPONSIVE
+   ============================================ */
+
+/* Touch devices: always-visible card actions need room so they don't cover the icon,
+   and disable "sticky" hover lift effects */
+@media (hover: none), (pointer: coarse) {
+  .medicine-content {
+    padding-top: 2.5rem;
+  }
+
+  .action-icon {
+    width: 2rem;
+    height: 2rem;
+  }
+
+  .product-card:hover,
+  .add-medicine-btn:hover,
+  .confirm-btn:hover:not(:disabled),
+  .btn-primary:hover:not(:disabled),
+  .btn-edit:hover:not(:disabled) {
+    transform: none;
+  }
+}
+
+/* Stacked layout (portrait tablet & phone) */
+@media (max-width: 1023px) {
+  .products-container,
+  .checkout-container {
+    height: auto;
+    overflow: visible;
+  }
+
+  .medicines-section {
+    overflow: visible;
+  }
+
+  .products-grid {
+    overflow: visible;
+    padding: 0;
+    margin: 0;
+  }
+
+  .checkout-container {
+    scroll-margin-top: 0.75rem;
+  }
+
+  .mobile-cart-bar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.75rem 1rem;
+    padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
+    background: white;
+    border-top: 1px solid #d1fae5;
+    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.08);
+  }
+
+  .mobile-cart-info {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.2;
+    min-width: 0;
+  }
+
+  .mobile-cart-count {
+    font-size: 0.75rem;
+    color: #6b7280;
+  }
+
+  .mobile-cart-total {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #059669;
+    white-space: nowrap;
+  }
+
+  .mobile-cart-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.25rem;
+    background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+    border: none;
+    border-radius: 0.75rem;
+    color: white;
+    font-weight: 600;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+}
+
+/* Phones */
+@media (max-width: 640px) {
+  .products-container,
+  .checkout-container {
+    padding: 0.875rem;
+  }
+
+  .patient-fields {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+
+  /* Prevent iOS from zooming into inputs (needs >= 16px) */
+  .input-field,
+  .search-input,
+  .discount-input,
+  .tax-rate-input,
+  .form-input {
+    font-size: 16px;
+  }
+
+  .tab-btn {
+    padding: 0.625rem 0.75rem;
+  }
+
+  .products-grid,
+  .medicines-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.625rem;
+  }
+
+  .product-card,
+  .medicine-content {
+    padding: 0.75rem;
+  }
+
+  .medicine-card {
+    padding: 0;
+  }
+
+  .product-icon {
+    width: 2.5rem;
+    height: 2.5rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .product-name {
+    word-break: break-word;
+  }
+
+  .total-amount {
+    font-size: 1.25rem;
+  }
+
+  .confirm-btn {
+    font-size: 0.9375rem;
+  }
+
+  /* Modals */
+  .modal-overlay {
+    padding: 0.75rem;
+  }
+
+  .modal-header,
+  .modal-body {
+    padding: 1rem;
+  }
+
+  .modal-title {
+    font-size: 1.0625rem;
+  }
+
+  .price-change-info {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+}
+
+/* Touch + phone: keep icon clear of always-visible actions (overrides the 0.75rem padding above) */
+@media (max-width: 640px) and (hover: none), (max-width: 640px) and (pointer: coarse) {
+  .medicine-content {
+    padding-top: 2.5rem;
+  }
+}
+
+/* Very small phones */
+@media (max-width: 380px) {
+  .tab-icon {
+    display: none;
+  }
+
+  .payment-btn {
+    padding: 0.625rem 0.25rem;
+  }
+
+  .confirm-btn {
+    gap: 0.5rem;
+  }
+
+  .form-actions {
+    flex-direction: column-reverse;
+  }
 }
 </style>

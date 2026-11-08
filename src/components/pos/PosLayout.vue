@@ -255,17 +255,109 @@ onUnmounted(() => {
   }
 }
 
-/* Responsive Adjustments */
-@media (max-width: 1200px) {
+/* ============================================
+   RESPONSIVE ADJUSTMENTS
+   ============================================ */
+
+/* Desktop / landscape tablet: lock layout to viewport so each panel scrolls on its own */
+@media (min-width: 1024px) {
+  .pos-layout {
+    height: 100vh;
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+  }
+
   .pos-main {
-    grid-template-columns: 1fr 380px;
+    min-height: 0;
+  }
+
+  .left-panel,
+  .right-panel {
+    min-height: 0;
   }
 }
 
-@media (max-width: 1024px) {
+@media (max-width: 1279px) {
+  .pos-main {
+    grid-template-columns: 1fr 360px;
+    gap: 1rem;
+    padding: 1rem;
+  }
+}
+
+/* Portrait tablet & phone: stack panels, page scrolls naturally */
+@media (max-width: 1023px) {
   .pos-main {
     grid-template-columns: 1fr;
-    grid-template-rows: 1fr auto;
+    grid-template-rows: auto auto;
+    overflow: visible;
+    /* room for the fixed mobile cart bar */
+    padding-bottom: 5.5rem;
+  }
+
+  .left-panel,
+  .right-panel {
+    overflow: visible;
+  }
+
+  .header-right {
+    gap: 1rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .pos-header {
+    padding: 0.625rem 1rem;
+  }
+
+  .logo {
+    gap: 0.5rem;
+  }
+
+  .logo-icon {
+    width: 2rem;
+    height: 2rem;
+  }
+
+  .logo-text {
+    font-size: 1.125rem;
+  }
+
+  .date {
+    display: none;
+  }
+
+  .time {
+    font-size: 0.9375rem;
+  }
+
+  .user-info {
+    padding: 0.25rem;
+  }
+
+  .user-name {
+    display: none;
+  }
+
+  .pos-main {
+    gap: 0.75rem;
+    padding: 0.75rem 0.75rem 5.5rem;
+  }
+
+  .left-panel,
+  .right-panel {
+    border-radius: 0.75rem;
+  }
+}
+
+@media (max-width: 380px) {
+  .logo-text {
+    font-size: 1rem;
+  }
+
+  .datetime {
+    display: none;
   }
 }
 </style>

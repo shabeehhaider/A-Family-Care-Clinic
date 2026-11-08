@@ -17,22 +17,22 @@
     </div>
 
     <!-- Items List -->
-    <div class="space-y-2 max-h-56 overflow-y-auto pr-1">
-      <div 
-        v-for="(item, index) in items" 
-        :key="item.id"
-        class="flex items-center justify-between bg-gray-50 rounded-lg p-3 hover:bg-gray-100 transition-colors group"
+    <div v-if="items.length" class="cart-items space-y-2 max-h-64 overflow-y-auto pr-1">
+      <div
+        v-for="(item, index) in items"
+        :key="`${item.type}-${item.id}`"
+        class="cart-row flex flex-wrap items-center gap-x-3 gap-y-2 bg-gray-50 rounded-lg p-3 hover:bg-gray-100 transition-colors"
       >
         <!-- Item Info -->
-        <div class="flex-1 min-w-0">
+        <div class="flex-1 min-w-[7rem]">
           <p class="font-medium text-gray-800 truncate">{{ item.name }}</p>
           <p class="text-sm text-emerald-600 font-semibold">
-            Rs. {{ item.price }} × {{ item.quantity }}
+            Rs. {{ item.price.toLocaleString() }} × {{ item.quantity }}
           </p>
         </div>
 
         <!-- Quantity Controls -->
-        <div class="flex items-center gap-2 mx-3">
+        <div class="flex items-center gap-2">
           <button 
             @click="$emit('update-quantity', index, item.quantity - 1)"
             class="w-7 h-7 rounded-full bg-gray-200 hover:bg-gray-300 flex items-center justify-center text-gray-600 transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500"
@@ -57,15 +57,16 @@
         </div>
 
         <!-- Item Total & Remove -->
-        <div class="flex items-center gap-3">
-          <span class="font-bold text-gray-800 w-20 text-right">
+        <div class="flex items-center gap-3 ml-auto">
+          <span class="font-bold text-gray-800 min-w-[4.5rem] text-right whitespace-nowrap">
             Rs. {{ (item.price * item.quantity).toLocaleString() }}
           </span>
-          
-          <button 
+
+          <button
             @click="$emit('remove-item', index)"
-            class="w-7 h-7 rounded-full bg-red-100 hover:bg-red-200 flex items-center justify-center text-red-500 opacity-0 group-hover:opacity-100 transition-all focus:outline-none focus:ring-2 focus:ring-red-500 focus:opacity-100"
+            class="remove-btn w-7 h-7 rounded-full bg-red-100 hover:bg-red-200 flex items-center justify-center text-red-500 transition-all focus:outline-none focus:ring-2 focus:ring-red-500"
             title="Remove item"
+            aria-label="Remove item"
           >
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
@@ -110,21 +111,41 @@ defineEmits(['remove-item', 'update-quantity'])
 
 <style scoped>
 /* Custom scrollbar for items list */
-.max-h-64::-webkit-scrollbar {
+.cart-items::-webkit-scrollbar {
   width: 4px;
 }
 
-.max-h-64::-webkit-scrollbar-track {
+.cart-items::-webkit-scrollbar-track {
   background: #f1f1f1;
   border-radius: 4px;
 }
 
-.max-h-64::-webkit-scrollbar-thumb {
+.cart-items::-webkit-scrollbar-thumb {
   background: #10b981;
   border-radius: 4px;
 }
 
-.max-h-64::-webkit-scrollbar-thumb:hover {
+.cart-items::-webkit-scrollbar-thumb:hover {
   background: #059669;
+}
+
+/* Remove button: reveal-on-hover only for real mouse users; always visible on touch */
+@media (hover: hover) and (pointer: fine) {
+  .remove-btn {
+    opacity: 0;
+  }
+
+  .cart-row:hover .remove-btn,
+  .remove-btn:focus-visible {
+    opacity: 1;
+  }
+}
+
+/* Bigger tap targets on touch devices */
+@media (pointer: coarse) {
+  .cart-row button {
+    width: 2.25rem;
+    height: 2.25rem;
+  }
 }
 </style>

@@ -49,66 +49,34 @@ input[type="number"] {
    ============================================ */
 
 @media print {
-  /* Remove all margins and padding for print */
+  /*
+   * Page width is 80mm. The exact page HEIGHT is injected at print time by
+   * Pos.vue (#receipt-page-size) to match the receipt's length, so the PDF is
+   * one strip and thermal printers cut right after the content. This rule is
+   * the fallback if that injection fails.
+   */
   @page {
-    size: 80mm auto;
+    size: 80mm 297mm;
     margin: 0;
   }
 
-  /* Hide everything except the receipt */
-  body * {
-    visibility: hidden;
+  html,
+  body {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
   }
 
-  /* Show only receipt container */
-  .receipt-container,
-  .receipt-container * {
-    visibility: visible !important;
-  }
-
-  /* Position receipt at top-left */
-  .receipt-container {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 80mm;
-    display: block !important;
-  }
-
-  /* Hide non-printable elements */
-  .no-print,
-  .no-print * {
+  /* Everything except the receipt is hidden */
+  .no-print {
     display: none !important;
-    visibility: hidden !important;
   }
 
-  /* Receipt specific print styles */
-  .receipt {
-    width: 80mm;
-    padding: 3mm;
-    font-family: 'Courier New', Courier, monospace;
-    font-size: 12px;
-    line-height: 1.4;
-    color: #000;
-    background: #fff;
-  }
-
-  /* Remove backgrounds and shadows for print */
-  * {
-    background: white !important;
-    box-shadow: none !important;
-    text-shadow: none !important;
-  }
-
-  /* Ensure black text for thermal printers */
   .receipt,
   .receipt * {
     color: #000 !important;
-  }
-
-  /* Print-friendly dividers */
-  .receipt .divider {
-    border-top: 1px dashed #000 !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
   }
 }
 
