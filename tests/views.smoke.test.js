@@ -20,6 +20,7 @@ async function render(component, path = '/') {
       { path: '/', name: 'Pos', component: views.Pos },
       { path: '/sales', name: 'SalesHistory', component: views.SalesHistory },
       { path: '/settings', name: 'Settings', component: views.Settings },
+      { path: '/inventory', name: 'Inventory', component: views.Inventory },
       { path: '/login', name: 'Login', component: views.Login }
     ]
   })
@@ -66,7 +67,8 @@ beforeAll(async () => {
     Pos: (await import('../src/views/Pos.vue')).default,
     SalesHistory: (await import('../src/views/SalesHistory.vue')).default,
     Settings: (await import('../src/views/Settings.vue')).default,
-    Login: (await import('../src/views/Login.vue')).default
+    Login: (await import('../src/views/Login.vue')).default,
+    Inventory: (await import('../src/views/Inventory.vue')).default
   }
 })
 
@@ -95,6 +97,15 @@ describe('pages render', () => {
     expect(html).toContain('Sara')
     expect(html).toContain('Download Backup')
     expect(html).toContain('No backup has been made yet')
+  })
+
+  it('Inventory lists medicines with status and admin actions', async () => {
+    const html = await render(views.Inventory, '/inventory')
+    expect(html).toContain('Paracetamol 500mg')
+    expect(html).toContain('Low stock')
+    expect(html).toContain('Expired')
+    expect(html).toContain('Stock not set')
+    expect(html).toContain('Update Stock')
   })
 
   it('Login lists users', async () => {

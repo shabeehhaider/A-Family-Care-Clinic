@@ -88,3 +88,17 @@ describe('buildSalesCsv', () => {
     expect(rows[1].startsWith('B,')).toBe(true)
   })
 })
+
+describe('buildInventoryCsv', () => {
+  it('writes one row per medicine, blank stock when not tracked', async () => {
+    const { buildInventoryCsv } = await import('../src/utils/csv')
+    const csv = buildInventoryCsv([
+      { item: { name: 'Paracetamol, 500mg', price: 50, stock: 3, lowStockAt: 10, expiry: '2027-01-31' }, status: { tracked: true }, label: 'Low stock' },
+      { item: { name: 'Untracked', price: 10 }, status: { tracked: false }, label: 'Stock not set' }
+    ])
+    const lines = csv.slice(1).split('\r\n')
+    expect(lines[0]).toBe('Medicine,Price,Stock,Warn At,Expiry,Status')
+    expect(lines[1]).toBe('"Paracetamol, 500mg",50,3,10,2027-01-31,Low stock')
+    expect(lines[2]).toBe('Untracked,10,,,,Stock not set')
+  })
+})

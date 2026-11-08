@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { isTracked, stockStatus, availableToAdd, applyStockChange } from '../src/utils/inventory'
+import {
+  isTracked, stockStatus, availableToAdd, applyStockChange, statusKey, summarizeInventory
+} from '../src/utils/inventory'
 
 const today = new Date(2026, 10, 8)
 
@@ -83,5 +85,29 @@ describe('applyStockChange', () => {
 
   it('returns the same array when no medicines are involved', () => {
     expect(applyStockChange(medicines, [{ id: 's1', type: 'service', quantity: 1 }], -1)).toBe(medicines)
+  })
+})
+
+describe('statusKey', () => {
+  it('picks the most urgent state', () => {
+    expect(statusKey(stockStatus({ stock: 0, expiry: '2020-01-01' }, today))).toBe('expired')
+    expect(statusKey(stockStatus({ stock: 0 }, today))).toBe('out')
+    expect(statusKey(stockStatus({ stock: 2 }, today))).toBe('low')
+    expect(statusKey(stockStatus({ stock: 50, expiry: '2026-11-20' }, today))).toBe('expiring')
+    expect(statusKey(stockStatus({}, today))).toBe('unset')
+    expect(statusKey(stockStatus({ stock: 50 }, today))).toBe('ok')
+  })
+})
+
+describe('summarizeInventory', () => {
+  it('counts each state', () => {
+    const s = summarizeInventory([
+      { stock: 0 },
+      { stock: 3 },
+      { stock: 50, expiry: '2026-11-01' },
+      { stock: 50 },
+      {}
+    ], today)
+    expect(s).toEqual({ total: 5, out: 1, low: 1, expiring: 1, unset: 1, attention: 3 })
   })
 })

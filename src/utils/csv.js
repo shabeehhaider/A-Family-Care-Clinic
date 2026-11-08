@@ -60,6 +60,23 @@ export function buildSalesCsv(sales = []) {
   return '﻿' + [SALES_CSV_HEADER.join(','), ...rows].join('\r\n')
 }
 
+/**
+ * Stock list as CSV. `rows` are { item, status } with status from
+ * inventory.stockStatus and `label` the readable status.
+ */
+export function buildInventoryCsv(rows = []) {
+  const header = ['Medicine', 'Price', 'Stock', 'Warn At', 'Expiry', 'Status']
+  const lines = rows.map(({ item, status, label }) => [
+    csvCell(item.name),
+    Number(item.price) || 0,
+    status.tracked ? item.stock : '',
+    status.tracked ? (item.lowStockAt ?? '') : '',
+    csvCell(item.expiry || ''),
+    csvCell(label)
+  ].join(','))
+  return '﻿' + [header.join(','), ...lines].join('\r\n')
+}
+
 /** Triggers a browser download of text content. */
 export function downloadTextFile(filename, content, mimeType) {
   const blob = new Blob([content], { type: mimeType })

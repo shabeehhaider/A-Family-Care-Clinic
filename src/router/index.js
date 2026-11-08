@@ -23,6 +23,12 @@ const routes = [
     meta: { title: 'Sales History' }
   },
   {
+    path: '/inventory',
+    name: 'Inventory',
+    component: () => import('@/views/Inventory.vue'),
+    meta: { title: 'Inventory' }
+  },
+  {
     path: '/settings',
     name: 'Settings',
     component: () => import('@/views/Settings.vue'),

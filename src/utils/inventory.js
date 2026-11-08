@@ -36,6 +36,45 @@ export function stockStatus(medicine, today = new Date()) {
   return { tracked, out, low, expired, expiringSoon, daysToExpiry }
 }
 
+/** Single most important state, for labels and sorting. */
+export function statusKey(status) {
+  if (status.expired) return 'expired'
+  if (status.out) return 'out'
+  if (status.low) return 'low'
+  if (status.expiringSoon) return 'expiring'
+  if (!status.tracked) return 'unset'
+  return 'ok'
+}
+
+export const STATUS_LABELS = {
+  expired: 'Expired',
+  out: 'Out of stock',
+  low: 'Low stock',
+  expiring: 'Expiring soon',
+  unset: 'Stock not set',
+  ok: 'In stock'
+}
+
+/** Most urgent first — used to sort by status. */
+export const STATUS_ORDER = ['expired', 'out', 'low', 'expiring', 'unset', 'ok']
+
+export const needsAttention = (s) => s.out || s.low || s.expired || s.expiringSoon
+
+/** Counts for the inventory summary cards. */
+export function summarizeInventory(medicines = [], today = new Date()) {
+  const summary = { total: 0, out: 0, low: 0, expiring: 0, unset: 0, attention: 0 }
+  for (const m of medicines) {
+    const s = stockStatus(m, today)
+    summary.total++
+    if (s.out) summary.out++
+    if (s.low) summary.low++
+    if (s.expired || s.expiringSoon) summary.expiring++
+    if (!s.tracked) summary.unset++
+    if (needsAttention(s)) summary.attention++
+  }
+  return summary
+}
+
 /** Units that can still be added to the cart (Infinity when untracked). */
 export function availableToAdd(medicine, quantityInCart = 0) {
   if (!isTracked(medicine)) return Infinity
