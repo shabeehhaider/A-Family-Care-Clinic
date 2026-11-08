@@ -91,7 +91,7 @@ async function setReceiptPageSize() {
   const root = document.documentElement
   root.classList.add('measuring-receipt')
 
-  let heightPx = 0
+  let heightPx
   try {
     await waitForImages(receipt)
     // make sure the logo has real dimensions before measuring

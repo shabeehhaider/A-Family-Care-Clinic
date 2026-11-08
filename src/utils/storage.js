@@ -14,7 +14,29 @@ export const STORAGE_KEYS = {
   medicines: 'medicines',
   sales: 'sales',
   receiptCounter: 'receiptCounter',
-  draft: 'draft'
+  draft: 'draft',
+  users: 'users',
+  lastBackupAt: 'lastBackupAt'
+}
+
+/** Per-tab login session (sessionStorage: closing the browser logs out). */
+const SESSION_KEY = PREFIX + 'session'
+
+export function loadSession() {
+  try {
+    return window.sessionStorage.getItem(SESSION_KEY)
+  } catch {
+    return null
+  }
+}
+
+export function saveSession(userId) {
+  try {
+    if (userId) window.sessionStorage.setItem(SESSION_KEY, userId)
+    else window.sessionStorage.removeItem(SESSION_KEY)
+  } catch {
+    /* ignore */
+  }
 }
 
 export function loadFromStorage(key, fallback) {

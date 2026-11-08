@@ -2,27 +2,35 @@
   <!-- App header: branding, page navigation, live clock, user -->
   <header class="app-header no-print">
     <div class="header-left">
-      <router-link to="/" class="logo">
-        <svg class="logo-icon" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14h-2v-4H6v-2h4V7h2v4h4v2h-4v4z"/>
+      <router-link to="/" class="logo" aria-label="A Family Care Clinic — POS home">
+        <svg class="logo-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14h-2v-4H6v-2h4V7h2v4h4v2h-4v4z" />
         </svg>
         <span class="logo-text">A Family Care Clinic</span>
       </router-link>
 
       <nav class="main-nav" aria-label="Main">
         <router-link to="/" class="nav-link" exact-active-class="active">
-          <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg class="nav-icon" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
               d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
           </svg>
           <span class="nav-label">POS</span>
         </router-link>
         <router-link to="/sales" class="nav-link" active-class="active">
-          <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg class="nav-icon" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
               d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
           </svg>
           <span class="nav-label">Sales History</span>
+        </router-link>
+        <router-link v-if="isAdmin" to="/settings" class="nav-link" active-class="active">
+          <svg class="nav-icon" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+          <span class="nav-label">Settings</span>
         </router-link>
       </nav>
     </div>
@@ -32,13 +40,28 @@
         <span class="date">{{ currentDate }}</span>
         <span class="time">{{ currentTime }}</span>
       </div>
-      <div class="user-info">
-        <div class="user-avatar">
+      <div v-if="currentUser" class="user-info">
+        <div class="user-avatar" aria-hidden="true">
           <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-            <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+            <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
           </svg>
         </div>
-        <span class="user-name">Cashier</span>
+        <span class="user-name">
+          {{ currentUser.name }}
+          <small class="user-role">{{ currentUser.role === 'admin' ? 'Admin' : 'Cashier' }}</small>
+        </span>
+        <button
+          type="button"
+          class="lock-btn"
+          :title="`Lock (log out ${currentUser.name})`"
+          :aria-label="`Lock — log out ${currentUser.name}`"
+          @click="lock"
+        >
+          <svg class="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+          </svg>
+        </button>
       </div>
     </div>
   </header>
@@ -46,6 +69,16 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { useAuth } from '@/composables/useAuth'
+
+const router = useRouter()
+const { currentUser, isAdmin, logout } = useAuth()
+
+const lock = () => {
+  logout()
+  router.push({ name: 'Login' })
+}
 
 const currentDate = ref('')
 const currentTime = ref('')
@@ -189,7 +222,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 0.5rem;
   background: rgba(255, 255, 255, 0.2);
-  padding: 0.5rem 1rem;
+  padding: 0.3125rem 0.3125rem 0.3125rem 0.5rem;
   border-radius: 9999px;
 }
 
@@ -205,8 +238,36 @@ onUnmounted(() => {
 }
 
 .user-name {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
   color: white;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.user-role {
+  font-size: 0.6875rem;
   font-weight: 500;
+  opacity: 0.85;
+}
+
+.lock-btn {
+  width: 2rem;
+  height: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.lock-btn:hover {
+  background: rgba(255, 255, 255, 0.35);
 }
 
 /* Responsive */

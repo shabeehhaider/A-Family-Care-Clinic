@@ -2,14 +2,14 @@
   <div class="item-list">
     <!-- Section Header -->
     <h3 class="text-lg font-semibold text-gray-700 mb-3 flex items-center gap-2">
-      <span class="w-2 h-2 bg-emerald-500 rounded-full"></span>
+      <span class="w-2 h-2 bg-emerald-500 rounded-full" aria-hidden="true"></span>
       {{ title }}
-      <span class="text-sm font-normal text-gray-400">({{ items.length }} items)</span>
+      <span class="text-sm font-normal text-gray-400">({{ items.length }} {{ items.length === 1 ? 'item' : 'items' }})</span>
     </h3>
 
     <!-- Empty State -->
     <div v-if="items.length === 0" class="text-center py-8 text-gray-400">
-      <svg class="w-12 h-12 mx-auto mb-2 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg class="w-12 h-12 mx-auto mb-2 opacity-50" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" 
           d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
       </svg>
@@ -17,8 +17,8 @@
     </div>
 
     <!-- Items List -->
-    <div v-if="items.length" class="cart-items space-y-2 max-h-64 overflow-y-auto pr-1">
-      <div
+    <ul v-if="items.length" class="cart-items space-y-2 max-h-64 overflow-y-auto pr-1" :aria-label="title">
+      <li
         v-for="(item, index) in items"
         :key="`${item.type}-${item.id}`"
         class="cart-row flex flex-wrap items-center gap-x-3 gap-y-2 bg-gray-50 rounded-lg p-3 hover:bg-gray-100 transition-colors"
@@ -32,25 +32,32 @@
         </div>
 
         <!-- Quantity Controls -->
-        <div class="flex items-center gap-2">
-          <button 
+        <div class="flex items-center gap-2" role="group" :aria-label="`Quantity of ${item.name}`">
+          <button
+            type="button"
             @click="$emit('update-quantity', index, item.quantity - 1)"
             class="w-7 h-7 rounded-full bg-gray-200 hover:bg-gray-300 flex items-center justify-center text-gray-600 transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500"
             :disabled="item.quantity <= 1"
             :class="{ 'opacity-50 cursor-not-allowed': item.quantity <= 1 }"
+            :aria-label="`Decrease quantity of ${item.name}`"
           >
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg class="w-4 h-4" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4" />
             </svg>
           </button>
           
-          <span class="w-8 text-center font-semibold text-gray-700">{{ item.quantity }}</span>
-          
-          <button 
+          <span class="w-8 text-center font-semibold text-gray-700" aria-live="polite">{{ item.quantity }}</span>
+
+          <button
+            type="button"
             @click="$emit('update-quantity', index, item.quantity + 1)"
             class="w-7 h-7 rounded-full bg-emerald-100 hover:bg-emerald-200 flex items-center justify-center text-emerald-600 transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            :disabled="atLimit(item)"
+            :class="{ 'opacity-50 cursor-not-allowed': atLimit(item) }"
+            :aria-label="`Increase quantity of ${item.name}`"
+            :title="atLimit(item) ? `Only ${item.maxQuantity} in stock` : undefined"
           >
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg class="w-4 h-4" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
             </svg>
           </button>
@@ -63,18 +70,19 @@
           </span>
 
           <button
+            type="button"
             @click="$emit('remove-item', index)"
             class="remove-btn w-7 h-7 rounded-full bg-red-100 hover:bg-red-200 flex items-center justify-center text-red-500 transition-all focus:outline-none focus:ring-2 focus:ring-red-500"
-            title="Remove item"
-            aria-label="Remove item"
+            :title="`Remove ${item.name}`"
+            :aria-label="`Remove ${item.name}`"
           >
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg class="w-4 h-4" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
-      </div>
-    </div>
+      </li>
+    </ul>
   </div>
 </template>
 
@@ -86,7 +94,8 @@
  * Used for both services and medicines in the POS cart.
  * 
  * Props:
- * - items: Array of cart items with { id, name, price, quantity }
+ * - items: Array of cart items with { id, name, price, quantity, maxQuantity? }
+ *   (maxQuantity = stock limit for tracked medicines; + is disabled at it)
  * - title: Section title string
  * 
  * Emits:
@@ -97,8 +106,7 @@
 defineProps({
   items: {
     type: Array,
-    required: true,
-    default: () => []
+    required: true
   },
   title: {
     type: String,
@@ -107,6 +115,9 @@ defineProps({
 })
 
 defineEmits(['remove-item', 'update-quantity'])
+
+const atLimit = (item) =>
+  Number.isFinite(item.maxQuantity) && item.quantity >= item.maxQuantity
 </script>
 
 <style scoped>

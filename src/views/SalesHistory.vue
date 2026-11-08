@@ -3,6 +3,18 @@
     <AppHeader />
 
     <main class="history-main no-print">
+      <!-- Backup reminder (admins) -->
+      <div v-if="showBackupReminder" class="backup-reminder" role="status">
+        <svg class="w-5 h-5 flex-shrink-0" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+        </svg>
+        <span>
+          {{ lastBackup ? `Last backup was ${formatIso(lastBackup)}.` : 'Sales data has never been backed up.' }}
+          If this browser's data is cleared, all sales history is lost.
+        </span>
+        <router-link to="/settings" class="reminder-link">Back up now</router-link>
+      </div>
+
       <!-- Title + search -->
       <div class="page-head">
         <div>
@@ -10,7 +22,7 @@
           <p class="page-subtitle">{{ rangeLabel }}</p>
         </div>
         <div class="search-box">
-          <svg class="search-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg class="search-icon" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
               d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
@@ -18,19 +30,22 @@
             v-model="searchQuery"
             type="search"
             class="search-input"
-            placeholder="Receipt #, patient name or phone"
+            placeholder="Receipt #, patient, phone or cashier"
+            aria-label="Search sales"
             @keydown.escape="searchQuery = ''"
           />
         </div>
       </div>
 
-      <!-- Date range filter -->
+      <!-- Date range filter + actions -->
       <div class="filters">
         <div class="range-chips" role="group" aria-label="Date range">
           <button
             v-for="r in ranges"
             :key="r.id"
+            type="button"
             :class="['chip', { active: range === r.id }]"
+            :aria-pressed="range === r.id"
             @click="setRange(r.id)"
           >
             {{ r.label }}
@@ -47,12 +62,25 @@
             />
           </label>
           <button
+            type="button"
+            class="export-btn"
+            :disabled="filteredSales.length === 0 || isPrinting"
+            title="Print a sales report for this period on the receipt printer"
+            @click="printReport"
+          >
+            <svg aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" :d="ICONS.print" />
+            </svg>
+            Print Report
+          </button>
+          <button
+            type="button"
             class="export-btn"
             :disabled="filteredSales.length === 0"
             title="Download the sales shown below as a CSV file (opens in Excel)"
             @click="exportCsv"
           >
-            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                 d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
             </svg>
@@ -91,9 +119,9 @@
       </div>
 
       <!-- Sales list -->
-      <section class="sales-panel">
+      <section class="sales-panel" aria-label="Sales">
         <div v-if="filteredSales.length === 0" class="empty-state">
-          <svg class="empty-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg class="empty-icon" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
               d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
           </svg>
@@ -123,7 +151,10 @@
                   {{ sale.receiptNumber }}
                   <span v-if="sale.voided" class="void-badge">VOID</span>
                 </span>
-                <span class="sale-date">{{ formatDateTime(sale) }}</span>
+                <span class="sale-date">
+                  {{ formatSaleTime(sale) }}
+                  <small v-if="sale.cashier?.name" class="cashier">by {{ sale.cashier.name }}</small>
+                </span>
                 <span class="sale-patient">
                   <template v-if="sale.patientName || sale.patientPhone">
                     {{ sale.patientName || 'Walk-in' }}
@@ -136,56 +167,62 @@
                 <span class="sale-total num">Rs. {{ formatAmount(sale.grandTotal) }}</span>
                 <span class="sale-actions">
                   <button
+                    type="button"
                     class="icon-btn"
                     :aria-expanded="expandedId === sale.receiptNumber"
-                    :title="expandedId === sale.receiptNumber ? 'Hide details' : 'View details'"
+                    :aria-controls="`details-${sale.receiptNumber}`"
+                    :aria-label="`${expandedId === sale.receiptNumber ? 'Hide' : 'Show'} details of ${sale.receiptNumber}`"
                     @click="toggle(sale.receiptNumber)"
                   >
-                    <svg class="chevron" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg class="chevron" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
                     </svg>
-                    <span class="btn-text">Details</span>
+                    <span class="btn-text" aria-hidden="true">Details</span>
                   </button>
                   <button
                     v-if="!sale.voided"
+                    type="button"
                     class="void-btn"
-                    title="Void this sale (it stays on record, excluded from totals)"
-                    @click="voidSale(sale)"
+                    :title="isAdmin ? 'Void this sale' : 'Void this sale (needs admin PIN)'"
+                    :aria-label="`Void ${sale.receiptNumber}`"
+                    @click="openVoid(sale)"
                   >
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                    <svg aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" :d="ICONS.void" />
                     </svg>
-                    <span class="btn-text">Void</span>
+                    <span class="btn-text" aria-hidden="true">Void</span>
                   </button>
                   <button
+                    type="button"
                     class="reprint-btn"
                     :disabled="isPrinting || !!sale.voided"
                     :title="sale.voided ? 'Voided sales cannot be reprinted' : 'Reprint receipt'"
+                    :aria-label="`Reprint ${sale.receiptNumber}`"
                     @click="reprint(sale)"
                   >
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                    <svg aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" :d="ICONS.print" />
                     </svg>
-                    <span class="btn-text">Reprint</span>
+                    <span class="btn-text" aria-hidden="true">Reprint</span>
                   </button>
                 </span>
               </div>
 
               <!-- Details -->
-              <div v-if="expandedId === sale.receiptNumber" class="sale-details">
+              <div v-if="expandedId === sale.receiptNumber" :id="`details-${sale.receiptNumber}`" class="sale-details">
                 <div v-if="sale.voided" class="void-info">
                   <strong>Voided</strong> on {{ formatIso(sale.voided.at) }}
+                  <span v-if="sale.voided.by?.name"> by {{ sale.voided.by.name }}</span>
+                  <span v-if="sale.voided.requestedBy?.name"> (requested by {{ sale.voided.requestedBy.name }})</span>
                   <span v-if="sale.voided.reason"> — Reason: {{ sale.voided.reason }}</span>
                 </div>
                 <table class="details-table">
                   <thead>
                     <tr>
-                      <th>Item</th>
-                      <th class="num">Price</th>
-                      <th class="num">Qty</th>
-                      <th class="num">Amount</th>
+                      <th scope="col">Item</th>
+                      <th scope="col" class="num">Price</th>
+                      <th scope="col" class="num">Qty</th>
+                      <th scope="col" class="num">Amount</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -218,6 +255,7 @@
 
           <button
             v-if="visibleSales.length < filteredSales.length"
+            type="button"
             class="show-more"
             @click="visibleCount += PAGE_SIZE"
           >
@@ -227,26 +265,51 @@
       </section>
     </main>
 
-    <!-- Print-only receipt used for reprints -->
-    <Receipt :data="reprintData" reprint />
+    <!-- Print-only documents (one at a time; usePrintReceipt sizes the page) -->
+    <DayReport
+      v-if="printMode === 'report'"
+      :summary="reportData.summary"
+      :range-label="reportData.rangeLabel"
+      :printed-at="reportData.printedAt"
+      :printed-by="reportData.printedBy"
+    />
+    <Receipt v-else :data="reprintData" reprint />
+
+    <VoidSaleModal :open="voidTarget !== null" :sale="voidTarget" @confirm="confirmVoid" @close="voidTarget = null" />
   </div>
 </template>
 
 <script setup>
 /**
- * Sales History
- *
- * Lists completed sales saved by the POS in localStorage, with date-range
- * filtering, search, daily summary and receipt reprinting (marked as a
- * duplicate copy).
+ * Sales History: filter, search, summary, reprint, void (with reason and
+ * admin approval), CSV export and a printable sales report.
  */
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import AppHeader from '@/components/AppHeader.vue'
 import Receipt from '@/components/pos/Receipt.vue'
+import DayReport from '@/components/pos/DayReport.vue'
+import VoidSaleModal from '@/components/sales/VoidSaleModal.vue'
 import { usePrintReceipt } from '@/composables/usePrintReceipt'
+import { useAuth } from '@/composables/useAuth'
+import { useCatalog } from '@/composables/useCatalog'
 import { STORAGE_KEYS, loadSales, saveSales } from '@/utils/storage'
+import { saleTime, itemCount, filterByRange, summarizeSales } from '@/utils/sales'
+import { buildSalesCsv, downloadTextFile } from '@/utils/csv'
+import { lastBackupAt } from '@/utils/backup'
+import {
+  formatAmount, formatDateTime, formatIso, toDateInputValue, parseDateInputValue
+} from '@/utils/format'
 
 const PAGE_SIZE = 50
+const BACKUP_STALE_DAYS = 7
+
+const ICONS = {
+  print: 'M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z',
+  void: 'M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636'
+}
+
+const { currentUser, isAdmin } = useAuth()
+const { restoreStock } = useCatalog()
 
 // ---------- Data ----------
 const allSales = ref([])
@@ -262,11 +325,20 @@ const onStorage = (e) => {
   if (e.key === null || e.key?.endsWith(STORAGE_KEYS.sales)) refreshSales()
 }
 
+refreshSales() // localStorage is synchronous: load before first render
+
 onMounted(() => {
-  refreshSales()
   window.addEventListener('storage', onStorage)
 })
 onUnmounted(() => window.removeEventListener('storage', onStorage))
+
+// ---------- Backup reminder ----------
+const lastBackup = ref(lastBackupAt())
+const showBackupReminder = computed(() => {
+  if (!isAdmin.value || allSales.value.length === 0) return false
+  if (!lastBackup.value) return true
+  return Date.now() - Date.parse(lastBackup.value) > BACKUP_STALE_DAYS * 86400000
+})
 
 // ---------- Filters ----------
 const ranges = [
@@ -283,10 +355,7 @@ const searchQuery = ref('')
 const expandedId = ref(null)
 const visibleCount = ref(PAGE_SIZE)
 
-const toInputValue = (d) =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-
-const todayInputValue = toInputValue(new Date())
+const todayInputValue = toDateInputValue(new Date())
 
 const setRange = (id) => {
   range.value = id
@@ -302,21 +371,20 @@ const onCustomDate = (value) => {
   range.value = 'custom'
 }
 
-const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate())
 const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n)
 
-/** [from, to) in ms for the selected range; null = no limit */
+/** [from, to) for the selected range; null = no limit */
 const rangeBounds = computed(() => {
-  const today = startOfDay(new Date())
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
   switch (range.value) {
     case 'today': return [today, addDays(today, 1)]
     case 'yesterday': return [addDays(today, -1), today]
     case 'week': return [addDays(today, -6), addDays(today, 1)]
     case 'month': return [new Date(today.getFullYear(), today.getMonth(), 1), addDays(today, 1)]
     case 'custom': {
-      const [y, m, d] = customDate.value.split('-').map(Number)
-      const day = new Date(y, m - 1, d)
-      return [day, addDays(day, 1)]
+      const day = parseDateInputValue(customDate.value)
+      return day ? [day, addDays(day, 1)] : null
     }
     default: return null
   }
@@ -324,8 +392,7 @@ const rangeBounds = computed(() => {
 
 const rangeLabel = computed(() => {
   if (range.value === 'custom' && customDate.value) {
-    const [y, m, d] = customDate.value.split('-').map(Number)
-    return new Date(y, m - 1, d).toLocaleDateString('en-US', {
+    return parseDateInputValue(customDate.value).toLocaleDateString('en-US', {
       weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
     })
   }
@@ -334,20 +401,13 @@ const rangeLabel = computed(() => {
 
 const filteredSales = computed(() => {
   const bounds = rangeBounds.value
+  const inRange = bounds ? filterByRange(allSales.value, bounds[0], bounds[1]) : allSales.value
   const q = searchQuery.value.trim().toLowerCase()
-
-  return allSales.value.filter(sale => {
-    if (bounds) {
-      const t = saleTime(sale)
-      if (t < bounds[0].getTime() || t >= bounds[1].getTime()) return false
-    }
-    if (q) {
-      const haystack = [sale.receiptNumber, sale.patientName, sale.patientPhone]
-        .filter(Boolean).join(' ').toLowerCase()
-      if (!haystack.includes(q)) return false
-    }
-    return true
-  })
+  if (!q) return inRange
+  return inRange.filter(sale =>
+    [sale.receiptNumber, sale.patientName, sale.patientPhone, sale.cashier?.name]
+      .filter(Boolean).join(' ').toLowerCase().includes(q)
+  )
 })
 
 const visibleSales = computed(() => filteredSales.value.slice(0, visibleCount.value))
@@ -359,96 +419,65 @@ watch([range, customDate, searchQuery], () => {
 })
 
 // Voided sales stay listed but are excluded from every total
-const totals = computed(() => {
-  const byPayment = {}
-  let count = 0
-  let revenue = 0
-  let discount = 0
-  let voidCount = 0
-  let voidAmount = 0
-  for (const sale of filteredSales.value) {
-    if (sale.voided) {
-      voidCount++
-      voidAmount += sale.grandTotal || 0
-      continue
-    }
-    count++
-    revenue += sale.grandTotal || 0
-    discount += sale.discount || 0
-    const method = sale.paymentMethod || 'Other'
-    byPayment[method] ??= { method, count: 0, amount: 0 }
-    byPayment[method].count++
-    byPayment[method].amount += sale.grandTotal || 0
-  }
-  return {
-    count,
-    revenue,
-    discount,
-    voidCount,
-    voidAmount,
-    byPayment: Object.values(byPayment).sort((a, b) => b.amount - a.amount)
-  }
-})
+const totals = computed(() => summarizeSales(filteredSales.value))
 
-// ---------- Helpers ----------
-function saleTime(sale) {
-  const t = Date.parse(sale.createdAt)
-  if (!Number.isNaN(t)) return t
-  // Fallback for records without createdAt
-  const fallback = Date.parse(`${sale.date} ${sale.time}`)
-  return Number.isNaN(fallback) ? 0 : fallback
-}
-
-const formatAmount = (n) => (Number(n) || 0).toLocaleString()
-
-const formatDateTime = (sale) => {
+const formatSaleTime = (sale) => {
   const t = saleTime(sale)
-  if (!t) return [sale.date, sale.time].filter(Boolean).join(' ')
-  return new Date(t).toLocaleString('en-US', {
-    month: 'short', day: 'numeric', year: 'numeric',
-    hour: '2-digit', minute: '2-digit'
-  })
+  return t ? formatDateTime(t) : [sale.date, sale.time].filter(Boolean).join(' ')
 }
-
-const itemCount = (sale) =>
-  (sale.items || []).reduce((sum, item) => sum + (item.quantity || 0), 0)
 
 const toggle = (id) => {
   expandedId.value = expandedId.value === id ? null : id
 }
 
-// ---------- Reprint ----------
+// ---------- Printing (reprint & report) ----------
 const { isPrinting, printReceipt } = usePrintReceipt()
+const printMode = ref('receipt') // 'receipt' | 'report'
 
 const reprintData = ref({
   receiptNumber: '', date: '', time: '', patientName: '', patientPhone: '',
   items: [], subtotal: 0, discount: 0, discountType: 'flat', discountValue: 0,
-  tax: 0, taxRate: 0, grandTotal: 0, paymentMethod: 'Cash'
+  tax: 0, taxRate: 0, grandTotal: 0, paymentMethod: 'Cash', cashier: null
 })
+
+const reportData = ref({ summary: summarizeSales([]), rangeLabel: '', printedAt: '', printedBy: '' })
 
 const reprint = async (sale) => {
   if (sale.voided) return
   // Reprint exactly what was sold — the saved snapshot, never current prices
+  printMode.value = 'receipt'
   reprintData.value = sale
   await printReceipt()
 }
 
-// ---------- Void ----------
-/**
- * Marks a sale as void. The record is kept (with time and reason) for the
- * audit trail; it is only excluded from totals. Voiding cannot be undone.
- */
-const voidSale = (sale) => {
-  const reason = window.prompt(
-    `Void receipt ${sale.receiptNumber} (Rs. ${formatAmount(sale.grandTotal)})?\n\n` +
-    'The sale stays in history marked VOID and is removed from totals. This cannot be undone.\n\n' +
-    'Reason (required):'
-  )
-  if (reason === null) return // cancelled
-  if (!reason.trim()) {
-    alert('A reason is required to void a sale.')
-    return
+/** Prints the sales report for the current filter (date range + search). */
+const printReport = async () => {
+  const q = searchQuery.value.trim()
+  reportData.value = {
+    summary: summarizeSales(filteredSales.value),
+    rangeLabel: q ? `${rangeLabel.value} — matching "${q}"` : rangeLabel.value,
+    printedAt: formatDateTime(new Date()),
+    printedBy: currentUser.value?.name || ''
   }
+  printMode.value = 'report'
+  await printReceipt(() => { printMode.value = 'receipt' })
+}
+
+// ---------- Void ----------
+const voidTarget = ref(null)
+
+const openVoid = (sale) => {
+  voidTarget.value = sale
+}
+
+/**
+ * Marks the sale void (kept for the audit trail, excluded from totals) and
+ * puts tracked medicine stock back. Cannot be undone.
+ */
+const confirmVoid = ({ reason, by, requestedBy }) => {
+  const sale = voidTarget.value
+  voidTarget.value = null
+  if (!sale) return
 
   // Re-read storage so a sale made in another tab isn't overwritten
   const sales = loadSales()
@@ -462,92 +491,23 @@ const voidSale = (sale) => {
     return
   }
 
-  target.voided = { at: new Date().toISOString(), reason: reason.trim() }
+  target.voided = { at: new Date().toISOString(), reason, by, ...(requestedBy ? { requestedBy } : {}) }
   if (!saveSales(sales)) {
     alert('Could not save the void (browser storage is unavailable or full).')
     return
   }
+  restoreStock(target.items)
   refreshSales()
 }
 
-const formatIso = (iso) => {
-  const t = Date.parse(iso)
-  return Number.isNaN(t)
-    ? ''
-    : new Date(t).toLocaleString('en-US', {
-      month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit'
-    })
-}
-
 // ---------- CSV export ----------
-const pad2 = (n) => String(n).padStart(2, '0')
-
-/** Quote a CSV cell; neutralise values Excel would run as formulas. */
-const csvCell = (value) => {
-  let v = value === null || value === undefined ? '' : String(value)
-  if (/^[=+\-@\t\r]/.test(v)) v = `'${v}`
-  return /[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v
-}
-
-/** Phone numbers as text so Excel keeps the leading 0 (03xx…) */
-const csvPhone = (phone) => {
-  const p = (phone || '').trim()
-  if (!p) return ''
-  return /^[0-9+\s-]+$/.test(p) ? `="${p}"` : csvCell(p)
-}
-
-/**
- * Downloads the sales currently shown (respects date filter + search),
- * oldest first, one row per sale. Opens directly in Excel.
- */
 const exportCsv = () => {
-  const header = [
-    'Receipt No', 'Date', 'Time', 'Patient Name', 'Patient Phone', 'Items',
-    'Item Count', 'Subtotal', 'Discount', 'Tax', 'Total', 'Payment Method',
-    'Status', 'Void Reason', 'Voided At'
-  ]
-
-  const rows = [...filteredSales.value]
-    .sort((a, b) => saleTime(a) - saleTime(b))
-    .map(sale => {
-      const d = new Date(saleTime(sale))
-      const items = (sale.items || [])
-        .map(i => `${i.name} x${i.quantity} @${i.price}`)
-        .join('; ')
-      return [
-        csvCell(sale.receiptNumber),
-        csvCell(`${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`),
-        csvCell(`${pad2(d.getHours())}:${pad2(d.getMinutes())}`),
-        csvCell(sale.patientName),
-        csvPhone(sale.patientPhone),
-        csvCell(items),
-        itemCount(sale),
-        sale.subtotal || 0,
-        sale.discount || 0,
-        sale.tax || 0,
-        sale.grandTotal || 0,
-        csvCell(sale.paymentMethod),
-        sale.voided ? 'VOID' : 'Completed',
-        csvCell(sale.voided?.reason),
-        csvCell(sale.voided ? formatIso(sale.voided.at) : '')
-      ].join(',')
-    })
-
-  // BOM so Excel reads UTF-8 (e.g. Urdu names) correctly
-  const csv = '﻿' + [header.join(','), ...rows].join('\r\n')
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
-
   const rangePart = range.value === 'custom' ? customDate.value : range.value
-  const filename = `sales-${rangePart}-${todayInputValue}.csv`
-
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = filename
-  document.body.appendChild(link)
-  link.click()
-  link.remove()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
+  downloadTextFile(
+    `sales-${rangePart}-${todayInputValue}.csv`,
+    buildSalesCsv(filteredSales.value),
+    'text/csv;charset=utf-8'
+  )
 }
 </script>
 
@@ -1237,12 +1197,17 @@ const exportCsv = () => {
   }
 
   .filters-right {
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
   }
 
   .date-picker {
-    flex: 1;
+    flex: 1 1 100%;
     min-width: 0;
+  }
+
+  .filters-right .export-btn {
+    flex: 1;
+    justify-content: center;
   }
 
   .date-picker input {
@@ -1270,6 +1235,54 @@ const exportCsv = () => {
   .details-table th,
   .details-table td {
     padding: 0.5rem;
+  }
+}
+
+/* ---------- Backup reminder & cashier ---------- */
+.backup-reminder {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.75rem;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #92400e;
+  font-size: 0.875rem;
+}
+
+.reminder-link {
+  margin-left: auto;
+  flex-shrink: 0;
+  padding: 0.375rem 0.75rem;
+  border-radius: 0.5rem;
+  background: #d97706;
+  color: white;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.reminder-link:hover {
+  background: #b45309;
+}
+
+.sale-date {
+  display: flex;
+  flex-direction: column;
+}
+
+.cashier {
+  font-size: 0.75rem;
+  color: #9ca3af;
+}
+
+@media (max-width: 640px) {
+  .backup-reminder {
+    flex-wrap: wrap;
+  }
+
+  .reminder-link {
+    margin-left: 0;
   }
 }
 

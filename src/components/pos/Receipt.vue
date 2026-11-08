@@ -34,6 +34,9 @@
           <span>Date: {{ data.date }}</span>
           <span>Time: {{ data.time }}</span>
         </div>
+        <div v-if="data.cashier?.name" class="info-row">
+          <span>Cashier: {{ data.cashier.name }}</span>
+        </div>
         <div v-if="data.patientName" class="info-row">
           <span>Patient: {{ data.patientName }}</span>
         </div>
@@ -119,7 +122,6 @@ import logoImage from '@/assets/logo.jpeg'
 defineProps({
   data: {
     type: Object,
-    required: true,
     default: () => ({
       receiptNumber: '',
       date: '',

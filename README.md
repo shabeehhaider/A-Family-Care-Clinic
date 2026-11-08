@@ -6,18 +6,31 @@ Built with Vue 3, Vite, Vue Router and Tailwind CSS. Runs entirely in the browse
 
 ## Features
 
+- **Login with PIN** (`/login`)
+  - First run creates the admin account; admins add more users in Settings
+  - **Admin**: everything below, including catalog/stock editing, voids, users, backup/restore
+  - **Cashier**: sell, view sales history, reprint receipts
+  - Every sale records its cashier; **Lock** in the header logs out
 - **POS** (`/`)
-  - Services and medicines catalog with search; add, reprice and delete items
+  - Services and medicines catalog with search; admins add, edit (name, price) and delete items
+  - Medicine **stock**: quantity, low-stock warning level and expiry date. Sales deduct stock,
+    voids restore it, out-of-stock and expired medicines can't be sold, and a
+    "Needs attention" filter lists low / out / expiring items
   - Cart with quantities, flat or % discount, optional tax, Cash / Card / Online payment
   - Optional patient name and phone
   - Prints an 80mm thermal receipt with a sequential number per day (`RC-YYYYMMDD-001`)
   - Responsive: desktop, tablet and phone (sticky cart bar on small screens)
 - **Sales History** (`/sales`)
-  - Filter by date range or day, search by receipt #, patient name or phone
+  - Filter by date range or day, search by receipt #, patient, phone or cashier
   - Totals: revenue, discounts, split by payment method
+  - **Print Report**: 80mm sales report for the selected period (totals, payment methods,
+    cashiers, items sold, voids)
   - Reprint a receipt (marked `** DUPLICATE COPY **`)
-  - Void a sale with a reason — it stays on record but is excluded from totals
+  - Void a sale with a reason (cashiers need an admin PIN) — it stays on record, excluded from totals
   - Export the shown sales to CSV (opens in Excel)
+- **Settings** (`/settings`, admin)
+  - Add users, reset PINs, delete users
+  - **Backup**: download all data as JSON; **Restore** from a backup file
 
 ## Data storage — important
 
@@ -25,7 +38,11 @@ All data (catalog, sales history, receipt counter, in-progress sale) is stored i
 
 - It is **not shared** between computers or browsers.
 - **Clearing browsing / site data deletes it**, including all sales history.
-- Use **Sales History → All → Export CSV** regularly as a backup.
+- Use **Settings → Download Backup** regularly (a reminder appears after 7 days) and keep the
+  file somewhere safe. **Restore** loads it back on this or another computer.
+
+PINs are stored salted and hashed. On a shared PC they provide accountability (who sold or voided
+what), not strong security against someone with access to the browser's developer tools.
 
 Keys are prefixed with `afcc.` (see `src/utils/storage.js`).
 
@@ -46,16 +63,27 @@ npm install
 npm run dev      # dev server at http://localhost:5173
 npm run build    # production build in dist/
 npm run preview  # serve the production build
+npm run lint     # ESLint (eslint-plugin-vue)
+npm test         # Vitest unit tests + page smoke test
 ```
 
 ## Project structure
 
 ```
 src/
-  views/Pos.vue                 POS screen (catalog, cart, billing, payment)
-  views/SalesHistory.vue        Sales history, reprint, void, CSV export
-  components/AppHeader.vue      Shared header and navigation
-  components/pos/               POS layout, cart list, thermal receipt
-  composables/usePrintReceipt.js  Receipt printing (80mm page sizing, afterprint)
-  utils/storage.js              localStorage helpers, receipt numbering
+  views/                Pos, SalesHistory, Settings, Login
+  components/
+    AppHeader.vue       Header, navigation, current user, lock
+    BaseModal.vue       Accessible dialog (focus trap, Escape, focus restore)
+    pos/                Layout, patient, catalog, cart, billing, payment,
+                        item form, receipt, sales report
+    sales/              Void dialog
+  composables/
+    useAuth.js          Users, PIN login, roles
+    useCatalog.js       Services & medicines (shared, persisted), stock changes
+    usePrintReceipt.js  80mm printing (page sizing, afterprint)
+  utils/                Pure, unit-tested logic: billing, sales summary, CSV,
+                        inventory, backup, PIN hashing, storage
+  data/defaultCatalog.js  Starting services, medicines, payment methods
+tests/                  Vitest tests
 ```
