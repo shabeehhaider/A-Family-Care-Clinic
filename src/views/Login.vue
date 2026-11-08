@@ -16,11 +16,11 @@
           <div class="form-row">
             <div class="form-group">
               <label for="setup-pin" class="form-label">Choose a PIN</label>
-              <input id="setup-pin" v-model="setupForm.pin" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password" class="form-input" required />
+              <PasswordInput id="setup-pin" v-model="setupForm.pin" inputmode="numeric" maxlength="6" autocomplete="new-password" class="form-input" required />
             </div>
             <div class="form-group">
               <label for="setup-pin2" class="form-label">Enter PIN again</label>
-              <input id="setup-pin2" v-model="setupForm.pin2" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password" class="form-input" required />
+              <PasswordInput id="setup-pin2" v-model="setupForm.pin2" inputmode="numeric" maxlength="6" autocomplete="new-password" class="form-input" required />
             </div>
           </div>
           <p class="form-hint pin-hint">PIN is 4 to 6 numbers. You'll use it to log in.</p>
@@ -57,11 +57,10 @@
         <form v-if="selectedId" novalidate @submit.prevent="submitLogin">
           <div class="form-group">
             <label for="login-pin" class="form-label">PIN for {{ selectedUser?.name }}</label>
-            <input
+            <PasswordInput
               id="login-pin"
               ref="pinInput"
               v-model="pin"
-              type="password"
               inputmode="numeric"
               maxlength="6"
               autocomplete="current-password"
@@ -83,6 +82,7 @@
 import { ref, reactive, computed, nextTick, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuth } from '@/composables/useAuth'
+import PasswordInput from '@/components/PasswordInput.vue'
 import logoUrl from '@/assets/logo.jpeg'
 
 const router = useRouter()
@@ -261,10 +261,13 @@ onMounted(() => {
   color: #6b7280;
 }
 
-.pin-input {
+/* the input lives inside PasswordInput, so reach it with :deep */
+:deep(.pin-input) {
   font-size: 1.5rem;
   letter-spacing: 0.5em;
   text-align: center;
+  /* equal padding both sides keeps the digits centred next to the eye button */
+  padding-left: 2.75rem;
 }
 
 @media (max-width: 480px) {

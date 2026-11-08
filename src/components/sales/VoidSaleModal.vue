@@ -39,10 +39,9 @@
           </div>
           <div class="form-group">
             <label :for="ids.pin" class="form-label small">Admin PIN</label>
-            <input
+            <PasswordInput
               :id="ids.pin"
               v-model="pin"
-              type="password"
               inputmode="numeric"
               autocomplete="off"
               maxlength="6"
@@ -71,6 +70,7 @@
 <script setup>
 import { ref, computed, watch, useId } from 'vue'
 import BaseModal from '@/components/BaseModal.vue'
+import PasswordInput from '@/components/PasswordInput.vue'
 import { useAuth, userRef } from '@/composables/useAuth'
 import { formatAmount } from '@/utils/format'
 

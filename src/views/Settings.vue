@@ -114,11 +114,11 @@
         <div class="form-row">
           <div class="form-group">
             <label for="user-pin" class="form-label">PIN (4–6 digits)</label>
-            <input id="user-pin" v-model="userForm.pin" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password" class="form-input" required />
+            <PasswordInput id="user-pin" v-model="userForm.pin" inputmode="numeric" maxlength="6" autocomplete="new-password" class="form-input" required />
           </div>
           <div class="form-group">
             <label for="user-pin2" class="form-label">Confirm PIN</label>
-            <input id="user-pin2" v-model="userForm.pin2" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password" class="form-input" required />
+            <PasswordInput id="user-pin2" v-model="userForm.pin2" inputmode="numeric" maxlength="6" autocomplete="new-password" class="form-input" required />
           </div>
         </div>
         <p v-if="userForm.error" class="form-error" role="alert">{{ userForm.error }}</p>
@@ -135,11 +135,11 @@
         <div class="form-row">
           <div class="form-group">
             <label for="reset-pin" class="form-label">New PIN (4–6 digits)</label>
-            <input id="reset-pin" v-model="pinForm.pin" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password" class="form-input" data-autofocus required />
+            <PasswordInput id="reset-pin" v-model="pinForm.pin" inputmode="numeric" maxlength="6" autocomplete="new-password" class="form-input" data-autofocus required />
           </div>
           <div class="form-group">
             <label for="reset-pin2" class="form-label">Confirm PIN</label>
-            <input id="reset-pin2" v-model="pinForm.pin2" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password" class="form-input" required />
+            <PasswordInput id="reset-pin2" v-model="pinForm.pin2" inputmode="numeric" maxlength="6" autocomplete="new-password" class="form-input" required />
           </div>
         </div>
         <p v-if="pinForm.error" class="form-error" role="alert">{{ pinForm.error }}</p>
@@ -180,6 +180,7 @@ import { ref, reactive, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import AppHeader from '@/components/AppHeader.vue'
 import BaseModal from '@/components/BaseModal.vue'
+import PasswordInput from '@/components/PasswordInput.vue'
 import { useAuth } from '@/composables/useAuth'
 import { useCatalog } from '@/composables/useCatalog'
 import {
