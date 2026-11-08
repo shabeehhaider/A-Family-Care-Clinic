@@ -5,11 +5,8 @@
 
       <!-- First run: create the admin -->
       <template v-if="!hasUsers">
-        <h1 :id="headingId" class="login-title">Set up the POS</h1>
-        <p class="login-subtitle">
-          Create the first <strong>admin</strong> account. Admins can edit the catalog, void sales,
-          manage users and back up data. You can add cashiers afterwards in Settings.
-        </p>
+        <h1 :id="headingId" class="login-title">Welcome</h1>
+        <p class="login-subtitle">Create your account to get started.</p>
 
         <form novalidate @submit.prevent="setup">
           <div class="form-group">
@@ -18,17 +15,18 @@
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label for="setup-pin" class="form-label">PIN (4–6 digits)</label>
+              <label for="setup-pin" class="form-label">Choose a PIN</label>
               <input id="setup-pin" v-model="setupForm.pin" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password" class="form-input" required />
             </div>
             <div class="form-group">
-              <label for="setup-pin2" class="form-label">Confirm PIN</label>
+              <label for="setup-pin2" class="form-label">Enter PIN again</label>
               <input id="setup-pin2" v-model="setupForm.pin2" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password" class="form-input" required />
             </div>
           </div>
+          <p class="form-hint pin-hint">PIN is 4 to 6 numbers. You'll use it to log in.</p>
           <p v-if="error" class="form-error" role="alert">{{ error }}</p>
           <div class="form-actions">
-            <button type="submit" class="btn btn-success">Create Admin &amp; Start</button>
+            <button type="submit" class="btn btn-success">Get Started</button>
           </div>
         </form>
       </template>
@@ -36,7 +34,7 @@
       <!-- Login -->
       <template v-else>
         <h1 :id="headingId" class="login-title">Who's working?</h1>
-        <p class="login-subtitle">Select your name and enter your PIN.</p>
+        <p class="login-subtitle">Tap your name and enter your PIN.</p>
 
         <div class="user-list" role="radiogroup" aria-label="User">
           <button
@@ -107,7 +105,7 @@ const setupForm = reactive({ name: '', pin: '', pin2: '' })
 const setup = () => {
   error.value = ''
   if (setupForm.pin !== setupForm.pin2) {
-    error.value = 'The two PINs do not match.'
+    error.value = "PINs don't match. Please try again."
     return
   }
   const result = createUser({ name: setupForm.name, role: 'admin', pin: setupForm.pin })
@@ -189,6 +187,10 @@ onMounted(() => {
   font-weight: 700;
   color: #064e3b;
   text-align: center;
+}
+
+.pin-hint {
+  margin: -0.5rem 0 0;
 }
 
 .login-subtitle {

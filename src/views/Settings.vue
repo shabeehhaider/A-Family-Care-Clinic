@@ -11,8 +11,7 @@
           <div>
             <h2 id="users-heading" class="card-title">Users</h2>
             <p class="card-subtitle">
-              <strong>Admins</strong> can edit the catalog and stock, void sales, manage users and back up data.
-              <strong>Cashiers</strong> can sell and reprint receipts.
+              <strong>Admin</strong>: full access. <strong>Cashier</strong>: sales and receipts only.
             </p>
           </div>
           <button type="button" class="head-btn" @click="openAddUser">
@@ -58,8 +57,8 @@
           <div>
             <h2 id="backup-heading" class="card-title">Backup &amp; Restore</h2>
             <p class="card-subtitle">
-              All data lives in this browser on this computer. Clearing browsing data deletes it.
-              Download a backup regularly and keep it somewhere safe (USB drive, email to yourself, cloud drive).
+              Your data is saved only on this computer. Download a backup every week and keep it safe
+              (USB, email or Google Drive).
             </p>
           </div>
         </div>
@@ -73,7 +72,7 @@
         <div class="backup-actions">
           <div class="backup-box">
             <h3>Download backup</h3>
-            <p>Saves sales history, services, medicines &amp; stock, users and the receipt counter to a <code>.json</code> file.</p>
+            <p>Saves all your sales, items and staff to one file.</p>
             <button type="button" class="btn btn-success" @click="downloadBackup">
               <svg class="btn-icon" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -84,7 +83,7 @@
 
           <div class="backup-box">
             <h3>Restore from backup</h3>
-            <p>Replaces <strong>all</strong> data on this computer with a backup file. Everyone will need to log in again.</p>
+            <p>Brings back your data from a backup file. This replaces what is on this computer now.</p>
             <label class="btn btn-secondary file-btn">
               <svg class="btn-icon" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
@@ -108,8 +107,8 @@
         <div class="form-group">
           <label for="user-role" class="form-label">Role</label>
           <select id="user-role" v-model="userForm.role" class="form-input">
-            <option value="cashier">Cashier — sell &amp; reprint</option>
-            <option value="admin">Admin — full access</option>
+            <option value="cashier">Cashier (sales only)</option>
+            <option value="admin">Admin (full access)</option>
           </select>
         </div>
         <div class="form-row">
@@ -161,12 +160,11 @@
           <li><strong>{{ restore.summary.users }}</strong> users</li>
         </ul>
         <p class="restore-warning">
-          This <strong>replaces everything</strong> currently on this computer — including any sales made
-          since the backup. This cannot be undone.
+          Everything on this computer now will be replaced, including sales made after this backup.
         </p>
         <label class="checkbox-row">
           <input v-model="restore.saveCurrentFirst" type="checkbox" />
-          Download a backup of the current data first (recommended)
+          Save a copy of the current data first (recommended)
         </label>
       </div>
       <div class="form-actions">
@@ -223,7 +221,7 @@ const openAddUser = () => {
 const saveUser = () => {
   userForm.error = ''
   if (userForm.pin !== userForm.pin2) {
-    userForm.error = 'The two PINs do not match.'
+    userForm.error = "PINs don't match. Please try again."
     return
   }
   const result = auth.createUser({ name: userForm.name, role: userForm.role, pin: userForm.pin })
@@ -243,7 +241,7 @@ const openResetPin = (user) => {
 const savePin = () => {
   pinForm.error = ''
   if (pinForm.pin !== pinForm.pin2) {
-    pinForm.error = 'The two PINs do not match.'
+    pinForm.error = "PINs don't match. Please try again."
     return
   }
   const result = auth.resetPin(pinForm.user.id, pinForm.pin)

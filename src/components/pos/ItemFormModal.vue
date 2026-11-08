@@ -85,7 +85,7 @@
           </div>
         </div>
         <p :id="ids.stockHint" class="form-hint stock-hint">
-          Leave quantity empty to sell without tracking stock. Sales reduce it; voids put it back.
+          Leave empty if you don't want to count stock.
         </p>
         <div class="form-group">
           <label :for="ids.expiry" class="form-label small">Expiry date</label>

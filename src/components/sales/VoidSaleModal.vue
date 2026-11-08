@@ -8,8 +8,7 @@
       </div>
 
       <p class="explain">
-        The sale stays in history marked <strong>VOID</strong> and is removed from all totals.
-        Tracked medicine stock is put back. <strong>This cannot be undone.</strong>
+        This sale will be marked <strong>VOID</strong> and not counted in totals. You can't undo this.
       </p>
 
       <div class="form-group">
