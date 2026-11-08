@@ -205,6 +205,8 @@ function badgesFor(status, medicine) {
   if (status.out) badges.push({ text: 'Out of stock', tone: 'danger' })
   else if (status.low) badges.push({ text: `Low: ${medicine.stock} left`, tone: 'warn' })
   else if (status.tracked) badges.push({ text: `${medicine.stock} in stock`, tone: 'muted' })
+  // Admins: make it obvious which medicines have no count yet (so no limit / no alerts)
+  else if (props.canEdit) badges.push({ text: 'Stock not set', tone: 'unset' })
   return badges
 }
 
@@ -589,6 +591,12 @@ const cardLabel = (entry) => {
 .stock-badge.muted {
   background: #f1f5f9;
   color: #475569;
+}
+
+.stock-badge.unset {
+  background: white;
+  border: 1px dashed #cbd5e1;
+  color: #64748b;
 }
 
 .stock-badge.warn {
