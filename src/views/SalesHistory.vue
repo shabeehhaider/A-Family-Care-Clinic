@@ -36,22 +36,39 @@
             {{ r.label }}
           </button>
         </div>
-        <label class="date-picker">
-          <span>Date</span>
-          <input
-            type="date"
-            :value="customDate"
-            :max="todayInputValue"
-            @change="onCustomDate($event.target.value)"
-          />
-        </label>
+        <div class="filters-right">
+          <label class="date-picker">
+            <span>Date</span>
+            <input
+              type="date"
+              :value="customDate"
+              :max="todayInputValue"
+              @change="onCustomDate($event.target.value)"
+            />
+          </label>
+          <button
+            class="export-btn"
+            :disabled="filteredSales.length === 0"
+            title="Download the sales shown below as a CSV file (opens in Excel)"
+            @click="exportCsv"
+          >
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            Export CSV
+          </button>
+        </div>
       </div>
 
       <!-- Summary -->
       <div class="summary">
         <div class="summary-card">
           <span class="summary-label">Sales</span>
-          <span class="summary-value">{{ filteredSales.length }}</span>
+          <span class="summary-value">{{ totals.count }}</span>
+          <span v-if="totals.voidCount" class="summary-note">
+            + {{ totals.voidCount }} voided (Rs. {{ formatAmount(totals.voidAmount) }})
+          </span>
         </div>
         <div class="summary-card highlight">
           <span class="summary-label">Revenue</span>
@@ -99,10 +116,13 @@
             <li
               v-for="sale in visibleSales"
               :key="sale.receiptNumber"
-              :class="['sale', { open: expandedId === sale.receiptNumber }]"
+              :class="['sale', { open: expandedId === sale.receiptNumber, voided: sale.voided }]"
             >
               <div class="sale-row">
-                <span class="sale-receipt">{{ sale.receiptNumber }}</span>
+                <span class="sale-receipt">
+                  {{ sale.receiptNumber }}
+                  <span v-if="sale.voided" class="void-badge">VOID</span>
+                </span>
                 <span class="sale-date">{{ formatDateTime(sale) }}</span>
                 <span class="sale-patient">
                   <template v-if="sale.patientName || sale.patientPhone">
@@ -127,9 +147,21 @@
                     <span class="btn-text">Details</span>
                   </button>
                   <button
+                    v-if="!sale.voided"
+                    class="void-btn"
+                    title="Void this sale (it stays on record, excluded from totals)"
+                    @click="voidSale(sale)"
+                  >
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                    </svg>
+                    <span class="btn-text">Void</span>
+                  </button>
+                  <button
                     class="reprint-btn"
-                    :disabled="isPrinting"
-                    title="Reprint receipt"
+                    :disabled="isPrinting || !!sale.voided"
+                    :title="sale.voided ? 'Voided sales cannot be reprinted' : 'Reprint receipt'"
                     @click="reprint(sale)"
                   >
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -143,6 +175,10 @@
 
               <!-- Details -->
               <div v-if="expandedId === sale.receiptNumber" class="sale-details">
+                <div v-if="sale.voided" class="void-info">
+                  <strong>Voided</strong> on {{ formatIso(sale.voided.at) }}
+                  <span v-if="sale.voided.reason"> — Reason: {{ sale.voided.reason }}</span>
+                </div>
                 <table class="details-table">
                   <thead>
                     <tr>
@@ -208,27 +244,26 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import AppHeader from '@/components/AppHeader.vue'
 import Receipt from '@/components/pos/Receipt.vue'
 import { usePrintReceipt } from '@/composables/usePrintReceipt'
-import { STORAGE_KEYS, loadFromStorage } from '@/utils/storage'
+import { STORAGE_KEYS, loadSales, saveSales } from '@/utils/storage'
 
 const PAGE_SIZE = 50
 
 // ---------- Data ----------
 const allSales = ref([])
 
-const loadSales = () => {
-  const sales = loadFromStorage(STORAGE_KEYS.sales, [])
-  allSales.value = (Array.isArray(sales) ? sales : [])
+const refreshSales = () => {
+  allSales.value = loadSales()
     .filter(s => s && s.receiptNumber)
     .sort((a, b) => saleTime(b) - saleTime(a)) // newest first
 }
 
 // Keep in sync if a sale is made in another tab
 const onStorage = (e) => {
-  if (e.key === null || e.key?.endsWith(STORAGE_KEYS.sales)) loadSales()
+  if (e.key === null || e.key?.endsWith(STORAGE_KEYS.sales)) refreshSales()
 }
 
 onMounted(() => {
-  loadSales()
+  refreshSales()
   window.addEventListener('storage', onStorage)
 })
 onUnmounted(() => window.removeEventListener('storage', onStorage))
@@ -323,11 +358,21 @@ watch([range, customDate, searchQuery], () => {
   expandedId.value = null
 })
 
+// Voided sales stay listed but are excluded from every total
 const totals = computed(() => {
   const byPayment = {}
+  let count = 0
   let revenue = 0
   let discount = 0
+  let voidCount = 0
+  let voidAmount = 0
   for (const sale of filteredSales.value) {
+    if (sale.voided) {
+      voidCount++
+      voidAmount += sale.grandTotal || 0
+      continue
+    }
+    count++
     revenue += sale.grandTotal || 0
     discount += sale.discount || 0
     const method = sale.paymentMethod || 'Other'
@@ -336,8 +381,11 @@ const totals = computed(() => {
     byPayment[method].amount += sale.grandTotal || 0
   }
   return {
+    count,
     revenue,
     discount,
+    voidCount,
+    voidAmount,
     byPayment: Object.values(byPayment).sort((a, b) => b.amount - a.amount)
   }
 })
@@ -379,9 +427,127 @@ const reprintData = ref({
 })
 
 const reprint = async (sale) => {
+  if (sale.voided) return
   // Reprint exactly what was sold — the saved snapshot, never current prices
   reprintData.value = sale
   await printReceipt()
+}
+
+// ---------- Void ----------
+/**
+ * Marks a sale as void. The record is kept (with time and reason) for the
+ * audit trail; it is only excluded from totals. Voiding cannot be undone.
+ */
+const voidSale = (sale) => {
+  const reason = window.prompt(
+    `Void receipt ${sale.receiptNumber} (Rs. ${formatAmount(sale.grandTotal)})?\n\n` +
+    'The sale stays in history marked VOID and is removed from totals. This cannot be undone.\n\n' +
+    'Reason (required):'
+  )
+  if (reason === null) return // cancelled
+  if (!reason.trim()) {
+    alert('A reason is required to void a sale.')
+    return
+  }
+
+  // Re-read storage so a sale made in another tab isn't overwritten
+  const sales = loadSales()
+  const target = sales.find(s => s.receiptNumber === sale.receiptNumber)
+  if (!target) {
+    alert('This sale could not be found in storage.')
+    return
+  }
+  if (target.voided) {
+    refreshSales()
+    return
+  }
+
+  target.voided = { at: new Date().toISOString(), reason: reason.trim() }
+  if (!saveSales(sales)) {
+    alert('Could not save the void (browser storage is unavailable or full).')
+    return
+  }
+  refreshSales()
+}
+
+const formatIso = (iso) => {
+  const t = Date.parse(iso)
+  return Number.isNaN(t)
+    ? ''
+    : new Date(t).toLocaleString('en-US', {
+      month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit'
+    })
+}
+
+// ---------- CSV export ----------
+const pad2 = (n) => String(n).padStart(2, '0')
+
+/** Quote a CSV cell; neutralise values Excel would run as formulas. */
+const csvCell = (value) => {
+  let v = value === null || value === undefined ? '' : String(value)
+  if (/^[=+\-@\t\r]/.test(v)) v = `'${v}`
+  return /[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v
+}
+
+/** Phone numbers as text so Excel keeps the leading 0 (03xx…) */
+const csvPhone = (phone) => {
+  const p = (phone || '').trim()
+  if (!p) return ''
+  return /^[0-9+\s-]+$/.test(p) ? `="${p}"` : csvCell(p)
+}
+
+/**
+ * Downloads the sales currently shown (respects date filter + search),
+ * oldest first, one row per sale. Opens directly in Excel.
+ */
+const exportCsv = () => {
+  const header = [
+    'Receipt No', 'Date', 'Time', 'Patient Name', 'Patient Phone', 'Items',
+    'Item Count', 'Subtotal', 'Discount', 'Tax', 'Total', 'Payment Method',
+    'Status', 'Void Reason', 'Voided At'
+  ]
+
+  const rows = [...filteredSales.value]
+    .sort((a, b) => saleTime(a) - saleTime(b))
+    .map(sale => {
+      const d = new Date(saleTime(sale))
+      const items = (sale.items || [])
+        .map(i => `${i.name} x${i.quantity} @${i.price}`)
+        .join('; ')
+      return [
+        csvCell(sale.receiptNumber),
+        csvCell(`${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`),
+        csvCell(`${pad2(d.getHours())}:${pad2(d.getMinutes())}`),
+        csvCell(sale.patientName),
+        csvPhone(sale.patientPhone),
+        csvCell(items),
+        itemCount(sale),
+        sale.subtotal || 0,
+        sale.discount || 0,
+        sale.tax || 0,
+        sale.grandTotal || 0,
+        csvCell(sale.paymentMethod),
+        sale.voided ? 'VOID' : 'Completed',
+        csvCell(sale.voided?.reason),
+        csvCell(sale.voided ? formatIso(sale.voided.at) : '')
+      ].join(',')
+    })
+
+  // BOM so Excel reads UTF-8 (e.g. Urdu names) correctly
+  const csv = '﻿' + [header.join(','), ...rows].join('\r\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+
+  const rangePart = range.value === 'custom' ? customDate.value : range.value
+  const filename = `sales-${rangePart}-${todayInputValue}.csv`
+
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 </script>
 
@@ -513,6 +679,48 @@ const reprint = async (sale) => {
   border-color: #10b981;
 }
 
+.filters-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.export-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.5rem 0.875rem;
+  border: 2px solid #059669;
+  border-radius: 0.5rem;
+  background: white;
+  color: #047857;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.export-btn svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.export-btn:hover:not(:disabled) {
+  background: #059669;
+  color: white;
+}
+
+.export-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.summary-note {
+  font-size: 0.75rem;
+  color: #b91c1c;
+}
+
 /* ---------- Summary ---------- */
 .summary {
   display: grid;
@@ -594,7 +802,7 @@ const reprint = async (sale) => {
 .sales-head,
 .sale-row {
   display: grid;
-  grid-template-columns: 11rem 11rem minmax(0, 1fr) 4rem 6rem 7.5rem 12.5rem;
+  grid-template-columns: 11.5rem 10.5rem minmax(0, 1fr) 3.5rem 5.5rem 7rem 17.5rem;
   align-items: center;
   gap: 0.75rem;
   padding: 0.75rem 1.25rem;
@@ -740,6 +948,68 @@ const reprint = async (sale) => {
   cursor: not-allowed;
 }
 
+.void-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #fecaca;
+  border-radius: 0.5rem;
+  background: white;
+  color: #dc2626;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.void-btn svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.void-btn:hover {
+  background: #fef2f2;
+  border-color: #dc2626;
+}
+
+/* Voided sales: kept for the record, visibly struck out */
+.void-badge {
+  display: inline-block;
+  margin-left: 0.375rem;
+  padding: 0 0.375rem;
+  border-radius: 0.25rem;
+  background: #dc2626;
+  color: white;
+  font-family: Arial, sans-serif;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  vertical-align: middle;
+}
+
+.sale.voided .sale-date,
+.sale.voided .sale-patient,
+.sale.voided .sale-items,
+.sale.voided .sale-payment {
+  opacity: 0.55;
+}
+
+.sale.voided .sale-total {
+  color: #9ca3af;
+  text-decoration: line-through;
+}
+
+.void-info {
+  grid-column: 1 / -1;
+  padding: 0.625rem 0.875rem;
+  border-radius: 0.5rem;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+  font-size: 0.8125rem;
+}
+
 /* Details */
 .sale-details {
   display: grid;
@@ -853,10 +1123,11 @@ const reprint = async (sale) => {
 @media (max-width: 1279px) {
   .sales-head,
   .sale-row {
-    grid-template-columns: 10.5rem 10rem minmax(0, 1fr) 3.5rem 5.5rem 7rem auto;
+    grid-template-columns: 11rem 9.5rem minmax(0, 1fr) 3rem 5rem 6.5rem auto;
   }
 
-  .icon-btn .btn-text {
+  .icon-btn .btn-text,
+  .void-btn .btn-text {
     display: none;
   }
 }
@@ -909,6 +1180,7 @@ const reprint = async (sale) => {
   }
 
   .icon-btn .btn-text,
+  .void-btn .btn-text,
   .mobile-only {
     display: inline;
   }
@@ -964,8 +1236,18 @@ const reprint = async (sale) => {
     align-items: stretch;
   }
 
+  .filters-right {
+    flex-wrap: nowrap;
+  }
+
+  .date-picker {
+    flex: 1;
+    min-width: 0;
+  }
+
   .date-picker input {
     flex: 1;
+    min-width: 0;
   }
 
   .summary {

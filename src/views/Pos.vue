@@ -1,12 +1,12 @@
 <template>
   <!-- 
-    Main POS View with Medicine Form Feature
+    Main POS View
     
     Complete Point of Sale interface for clinic operations.
     Features:
     - Patient information (optional)
     - Service & medicine selection with search
-    - **NEW: Add custom medicines through a form**
+    - Add / edit price / delete services and medicines (saved in localStorage)
     - Cart management with quantity controls
     - Billing with discount (flat/percentage) and tax
     - Multiple payment methods
@@ -99,88 +99,72 @@
           </button>
         </div>
 
-        <!-- Services Grid -->
-        <div v-if="activeTab === 'services'" class="products-grid">
-          <button 
-            v-for="service in filteredServices" 
-            :key="service.id"
-            @click="addToCart(service, 'service')"
-            class="product-card service-card"
-          >
-            <div class="product-icon">
-              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" :d="service.icon" />
-              </svg>
-            </div>
-            <div class="product-info">
-              <span class="product-name">{{ service.name }}</span>
-              <span class="product-price">Rs. {{ service.price.toLocaleString() }}</span>
-            </div>
-          </button>
-        </div>
-
-        <!-- Medicines Grid with Add Button -->
-        <div v-if="activeTab === 'medicines'" class="medicines-section">
-          <!-- Add Medicine Button -->
-          <button 
-            @click="openMedicineForm"
-            class="add-medicine-btn"
+        <!-- Catalog: services or medicines (add / edit / delete / add to cart) -->
+        <div class="catalog-section">
+          <button
+            @click="openAddForm"
+            :class="['add-item-btn', activeTab]"
           >
             <svg class="add-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                 d="M12 4v16m8-8H4" />
             </svg>
-            Add New Medicine
+            Add New {{ itemLabel }}
           </button>
 
-          <!-- Medicines Grid -->
-          <div class="products-grid medicines-grid">
-            <div 
-              v-for="medicine in filteredMedicines" 
-              :key="medicine.id"
-              class="product-card medicine-card"
+          <div :class="['products-grid', { 'medicines-grid': activeTab === 'medicines' }]">
+            <div
+              v-for="item in filteredItems"
+              :key="item.id"
+              :class="['product-card', 'editable-card', activeTab === 'services' ? 'service-card' : 'medicine-card']"
             >
               <!-- Edit & Delete Actions -->
-              <div class="medicine-actions">
-                <button 
-                  @click.stop="openEditMedicine(medicine)"
+              <div class="card-actions">
+                <button
+                  @click.stop="openEditForm(item, currentType)"
                   class="action-icon edit-icon"
                   title="Edit Price"
+                  :aria-label="`Edit price of ${item.name}`"
                 >
                   <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                       d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                   </svg>
                 </button>
-                <button 
-                  @click.stop="deleteMedicine(medicine)"
+                <button
+                  @click.stop="deleteItem(item, currentType)"
                   class="action-icon delete-icon"
-                  title="Delete Medicine"
+                  :title="`Delete ${itemLabel}`"
+                  :aria-label="`Delete ${item.name}`"
                 >
                   <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                       d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                   </svg>
                 </button>
               </div>
 
               <!-- Clickable Area for Add to Cart -->
-              <button 
-                @click="addToCart(medicine, 'medicine')"
-                class="medicine-content"
+              <button
+                @click="addToCart(item, currentType)"
+                class="card-content"
               >
-                <div class="product-icon medicine-icon">
+                <div :class="['product-icon', { 'medicine-icon': activeTab === 'medicines' }]">
                   <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                      d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" :d="iconFor(item, currentType)" />
                   </svg>
                 </div>
                 <div class="product-info">
-                  <span class="product-name">{{ medicine.name }}</span>
-                  <span class="product-price">Rs. {{ medicine.price.toLocaleString() }}</span>
+                  <span class="product-name">{{ item.name }}</span>
+                  <span class="product-price">Rs. {{ item.price.toLocaleString() }}</span>
                 </div>
               </button>
             </div>
+
+            <p v-if="filteredItems.length === 0" class="catalog-empty">
+              <template v-if="searchQuery">No {{ activeTab }} match "{{ searchQuery }}".</template>
+              <template v-else>No {{ activeTab }} yet. Use "Add New {{ itemLabel }}" above.</template>
+            </p>
           </div>
         </div>
       </div>
@@ -360,76 +344,79 @@
     </button>
   </div>
 
-  <!-- Medicine Form Modal -->
+  <!-- Add Item Modal (service or medicine) -->
   <Teleport to="body">
     <Transition name="modal">
-      <div v-if="showMedicineForm" class="modal-overlay" @click.self="closeMedicineForm">
-        <div class="modal-container">
-          <div class="modal-header">
+      <div v-if="showAddForm" class="modal-overlay" @click.self="closeAddForm">
+        <div class="modal-container" role="dialog" aria-modal="true" @keydown.escape="closeAddForm">
+          <div :class="['modal-header', { 'service-header': addForm.type === 'service' }]">
             <h3 class="modal-title">
               <svg class="modal-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                   d="M12 4v16m8-8H4" />
               </svg>
-              Add New Medicine
+              Add New {{ typeLabel(addForm.type) }}
             </h3>
-            <button @click="closeMedicineForm" class="modal-close">
+            <button @click="closeAddForm" class="modal-close" aria-label="Close">
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
           </div>
 
-          <form @submit.prevent="addMedicine" class="modal-body">
+          <form @submit.prevent="addItem" class="modal-body">
             <div class="form-group">
-              <label for="medicineName" class="form-label">
-                Medicine Name <span class="required">*</span>
+              <label for="itemName" class="form-label">
+                {{ typeLabel(addForm.type) }} Name <span class="required">*</span>
               </label>
-              <input 
-                id="medicineName"
-                v-model="newMedicine.name"
+              <input
+                id="itemName"
+                v-model="addForm.name"
                 type="text"
                 required
-                placeholder="e.g., Paracetamol 500mg"
+                :placeholder="addForm.type === 'service' ? 'e.g., Nebulization' : 'e.g., Paracetamol 500mg'"
                 class="form-input"
-                ref="medicineNameInput"
+                ref="addNameInput"
               />
+              <p v-if="duplicateName" class="form-hint">
+                A {{ typeLabel(addForm.type).toLowerCase() }} with this name already exists.
+              </p>
             </div>
 
             <div class="form-group">
-              <label for="medicinePrice" class="form-label">
+              <label for="itemPrice" class="form-label">
                 Price (Rs.) <span class="required">*</span>
               </label>
-              <input 
-                id="medicinePrice"
-                v-model.number="newMedicine.price"
+              <input
+                id="itemPrice"
+                v-model.number="addForm.price"
                 type="number"
                 min="0"
                 step="0.01"
                 required
-                placeholder="e.g., 50"
+                :placeholder="addForm.type === 'service' ? 'e.g., 250' : 'e.g., 50'"
                 class="form-input"
               />
             </div>
 
             <div class="form-actions">
-              <button 
-                type="button" 
-                @click="closeMedicineForm"
+              <button
+                type="button"
+                @click="closeAddForm"
                 class="btn btn-secondary"
               >
                 Cancel
               </button>
-              <button 
+              <button
                 type="submit"
-                class="btn btn-primary"
-                :disabled="!newMedicine.name || !newMedicine.price"
+                :class="['btn', addForm.type === 'service' ? 'btn-service' : 'btn-primary']"
+                :disabled="!addForm.name.trim() || !addForm.price || addForm.price <= 0 || duplicateName"
               >
                 <svg class="btn-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                     d="M12 4v16m8-8H4" />
                 </svg>
-                Add Medicine
+                Add {{ typeLabel(addForm.type) }}
               </button>
             </div>
           </form>
@@ -438,39 +425,39 @@
     </Transition>
   </Teleport>
 
-  <!-- Edit Medicine Modal -->
+  <!-- Edit Price Modal (service or medicine) -->
   <Teleport to="body">
     <Transition name="modal">
-      <div v-if="showEditMedicineForm" class="modal-overlay" @click.self="closeEditMedicineForm">
-        <div class="modal-container">
+      <div v-if="showEditForm" class="modal-overlay" @click.self="closeEditForm">
+        <div class="modal-container" role="dialog" aria-modal="true" @keydown.escape="closeEditForm">
           <div class="modal-header edit-header">
             <h3 class="modal-title">
               <svg class="modal-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                   d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
               </svg>
-              Edit Medicine Price
+              Edit {{ typeLabel(editForm.type) }} Price
             </h3>
-            <button @click="closeEditMedicineForm" class="modal-close">
+            <button @click="closeEditForm" class="modal-close" aria-label="Close">
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
           </div>
 
-          <form @submit.prevent="updateMedicinePrice" class="modal-body">
+          <form @submit.prevent="updateItemPrice" class="modal-body">
             <div class="form-group">
-              <label class="form-label">Medicine Name</label>
-              <div class="medicine-name-display">{{ editingMedicine.name }}</div>
+              <label class="form-label">{{ typeLabel(editForm.type) }} Name</label>
+              <div class="medicine-name-display">{{ editForm.name }}</div>
             </div>
 
             <div class="form-group">
-              <label for="editMedicinePrice" class="form-label">
+              <label for="editItemPrice" class="form-label">
                 New Price (Rs.) <span class="required">*</span>
               </label>
-              <input 
-                id="editMedicinePrice"
-                v-model.number="editingMedicine.newPrice"
+              <input
+                id="editItemPrice"
+                v-model.number="editForm.newPrice"
                 type="number"
                 min="0"
                 step="0.01"
@@ -481,29 +468,29 @@
               />
             </div>
 
-            <div class="price-change-info" v-if="editingMedicine.oldPrice">
-              <span class="old-price">Old: Rs. {{ editingMedicine.oldPrice.toLocaleString() }}</span>
+            <div class="price-change-info" v-if="editForm.oldPrice">
+              <span class="old-price">Old: Rs. {{ editForm.oldPrice.toLocaleString() }}</span>
               <span class="arrow">→</span>
-              <span class="new-price" :class="{ 'higher': editingMedicine.newPrice > editingMedicine.oldPrice, 'lower': editingMedicine.newPrice < editingMedicine.oldPrice }">
-                New: Rs. {{ (editingMedicine.newPrice || 0).toLocaleString() }}
+              <span class="new-price" :class="{ 'higher': editForm.newPrice > editForm.oldPrice, 'lower': editForm.newPrice < editForm.oldPrice }">
+                New: Rs. {{ (editForm.newPrice || 0).toLocaleString() }}
               </span>
             </div>
 
             <div class="form-actions">
-              <button 
-                type="button" 
-                @click="closeEditMedicineForm"
+              <button
+                type="button"
+                @click="closeEditForm"
                 class="btn btn-secondary"
               >
                 Cancel
               </button>
-              <button 
+              <button
                 type="submit"
                 class="btn btn-edit"
-                :disabled="!editingMedicine.newPrice || editingMedicine.newPrice <= 0"
+                :disabled="!editForm.newPrice || editForm.newPrice <= 0"
               >
                 <svg class="btn-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                     d="M5 13l4 4L19 7" />
                 </svg>
                 Update Price
@@ -518,14 +505,12 @@
 
 <script setup>
 /**
- * POS View - Main Point of Sale Interface with Medicine Form
+ * POS View - Main Point of Sale Interface
  * 
- * NEW FEATURE: Add Custom Medicines
- * - Click "Add New Medicine" button in medicines tab
- * - Modal form opens with name and price fields
- * - New medicine is added to medicines array with unique ID
- * - Form validation ensures all fields are filled
- * - Auto-focuses on name field when modal opens
+ * CATALOG:
+ * - Services and medicines can be added, repriced and deleted from their tab
+ * - Catalog, in-progress sale, sales history and receipt counter are saved
+ *   to localStorage (see utils/storage.js)
  * 
  * STATE MANAGEMENT:
  * - Uses Vue 3 Composition API with ref() and computed()
@@ -547,14 +532,16 @@ import {
   STORAGE_KEYS,
   loadFromStorage,
   saveToStorage,
+  loadSales,
+  saveSales,
   nextReceiptNumber
 } from '@/utils/storage'
 
 // ============================================
-// DUMMY DATA - Static services and medicines
+// CATALOG - default services & medicines (user changes are saved)
 // ============================================
 
-const services = ref([
+const DEFAULT_SERVICES = [
   { id: 's1', name: 'Consultation', price: 500, icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01' },
   { id: 's2', name: 'Lab Test', price: 300, icon: 'M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z' },
   { id: 's3', name: 'Injection', price: 150, icon: 'M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01' },
@@ -563,7 +550,14 @@ const services = ref([
   { id: 's6', name: 'Ultrasound', price: 1200, icon: 'M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z' },
   { id: 's7', name: 'Dressing', price: 200, icon: 'M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z' },
   { id: 's8', name: 'Blood Pressure', price: 100, icon: 'M13 10V3L4 14h7v7l9-11h-7z' }
-])
+]
+
+// Services persist across refreshes (added / edited / deleted ones are kept)
+const services = ref(loadFromStorage(STORAGE_KEYS.services, DEFAULT_SERVICES))
+
+// Icons for items that don't carry their own (new services, all medicines)
+const DEFAULT_SERVICE_ICON = 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01'
+const MEDICINE_ICON = 'M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z'
 
 const DEFAULT_MEDICINES = [
   { id: 'm1', name: 'Paracetamol 500mg', price: 50 },
@@ -621,22 +615,14 @@ const selectedPaymentMethod = ref(draft.selectedPaymentMethod ?? 'cash')
 const receiptData = ref(createEmptyReceipt())
 const { isPrinting, printReceipt, cancelPrintWait } = usePrintReceipt()
 
-// Medicine Form
-const showMedicineForm = ref(false)
-const newMedicine = ref({
-  name: '',
-  price: null
-})
-const medicineNameInput = ref(null)
+// Add item form (service or medicine)
+const showAddForm = ref(false)
+const addForm = ref({ type: 'medicine', name: '', price: null })
+const addNameInput = ref(null)
 
-// Edit Medicine Form
-const showEditMedicineForm = ref(false)
-const editingMedicine = ref({
-  id: null,
-  name: '',
-  oldPrice: null,
-  newPrice: null
-})
+// Edit price form (service or medicine)
+const showEditForm = ref(false)
+const editForm = ref({ type: 'medicine', id: null, name: '', oldPrice: null, newPrice: null })
 const editPriceInput = ref(null)
 
 // Checkout panel (used by mobile cart bar to scroll into view)
@@ -660,6 +646,20 @@ const filteredMedicines = computed(() => {
   if (!searchQuery.value) return medicines.value
   const query = searchQuery.value.toLowerCase()
   return medicines.value.filter(m => m.name.toLowerCase().includes(query))
+})
+
+// Current tab helpers
+const currentType = computed(() => activeTab.value === 'services' ? 'service' : 'medicine')
+const itemLabel = computed(() => typeLabel(currentType.value))
+const filteredItems = computed(() =>
+  activeTab.value === 'services' ? filteredServices.value : filteredMedicines.value
+)
+
+// Warn when adding a name that already exists in that list
+const duplicateName = computed(() => {
+  const name = addForm.value.name.trim().toLowerCase()
+  if (!name) return false
+  return listFor(addForm.value.type).value.some(i => i.name.trim().toLowerCase() === name)
 })
 
 const subtotal = computed(() => {
@@ -692,6 +692,10 @@ const grandTotal = computed(() => {
 // ============================================
 // PERSISTENCE (localStorage)
 // ============================================
+
+watch(services, (value) => {
+  saveToStorage(STORAGE_KEYS.services, value)
+}, { deep: true })
 
 watch(medicines, (value) => {
   saveToStorage(STORAGE_KEYS.medicines, value)
@@ -773,9 +777,9 @@ const buildReceiptSnapshot = () => {
  * Returns false if storage is unavailable or full.
  */
 const saveSale = (sale) => {
-  const sales = loadFromStorage(STORAGE_KEYS.sales, [])
+  const sales = loadSales()
   sales.push(sale)
-  return saveToStorage(STORAGE_KEYS.sales, sales)
+  return saveSales(sales)
 }
 
 const addToCart = (item, type) => {
@@ -854,126 +858,104 @@ const focusNextInput = (event) => {
   }
 }
 
-/**
- * NEW: Open medicine form modal
- * Auto-focuses on name input field
- */
-const openMedicineForm = () => {
-  showMedicineForm.value = true
+// ---------- Catalog management (services & medicines) ----------
+
+function typeLabel(type) {
+  return type === 'service' ? 'Service' : 'Medicine'
+}
+
+function listFor(type) {
+  return type === 'service' ? services : medicines
+}
+
+const iconFor = (item, type) =>
+  type === 'service' ? (item.icon || DEFAULT_SERVICE_ICON) : MEDICINE_ICON
+
+/** Open the add form for the current tab and focus the name field */
+const openAddForm = () => {
+  addForm.value = { type: currentType.value, name: '', price: null }
+  showAddForm.value = true
   nextTick(() => {
-    medicineNameInput.value?.focus()
+    addNameInput.value?.focus()
   })
 }
 
-/**
- * NEW: Close medicine form modal
- * Resets form fields
- */
-const closeMedicineForm = () => {
-  showMedicineForm.value = false
-  newMedicine.value = {
-    name: '',
-    price: null
-  }
+const closeAddForm = () => {
+  showAddForm.value = false
+  addForm.value = { type: currentType.value, name: '', price: null }
 }
 
-/**
- * NEW: Add medicine to medicines array
- * Generates unique ID and adds to medicines list
- */
-const addMedicine = () => {
-  if (!newMedicine.value.name || !newMedicine.value.price) {
-    return
-  }
+/** Add a new service/medicine with a unique ID */
+const addItem = () => {
+  const { type, name, price } = addForm.value
+  if (!name.trim() || !price || price <= 0 || duplicateName.value) return
 
-  // Generate unique ID
-  const newId = `m${Date.now()}`
-  
-  // Add to medicines array
-  medicines.value.push({
-    id: newId,
-    name: newMedicine.value.name,
-    price: Number(newMedicine.value.price)
+  const prefix = type === 'service' ? 's' : 'm'
+  listFor(type).value.push({
+    id: `${prefix}${Date.now()}`,
+    name: name.trim(),
+    price: Number(price)
   })
 
-  // Close form and reset
-  closeMedicineForm()
+  closeAddForm()
 }
 
-/**
- * Delete medicine from medicines array
- */
-const deleteMedicine = (medicineToDelete) => {
-  const medicineId = medicineToDelete.id
-  const index = medicines.value.findIndex(m => m.id === medicineId)
-  if (index !== -1) {
-    const inCart = cartItems.value.some(
-      item => item.id === medicineId && item.type === 'medicine'
-    )
-    const message = `Delete "${medicineToDelete.name}"?` +
-      (inCart ? '\n\nIt will also be removed from the current cart.' : '') +
-      '\n\nThis cannot be undone.'
-    if (!window.confirm(message)) return
+/** Delete a service/medicine (with confirmation); also removes it from the cart */
+const deleteItem = (itemToDelete, type) => {
+  const list = listFor(type)
+  const index = list.value.findIndex(i => i.id === itemToDelete.id)
+  if (index === -1) return
 
-    // Also remove from cart if present
-    cartItems.value = cartItems.value.filter(
-      item => !(item.id === medicineId && item.type === 'medicine')
-    )
-    // Remove from medicines list
-    medicines.value.splice(index, 1)
-  }
+  const inCart = cartItems.value.some(
+    item => item.id === itemToDelete.id && item.type === type
+  )
+  const message = `Delete "${itemToDelete.name}"?` +
+    (inCart ? '\n\nIt will also be removed from the current cart.' : '') +
+    '\n\nThis cannot be undone.'
+  if (!window.confirm(message)) return
+
+  cartItems.value = cartItems.value.filter(
+    item => !(item.id === itemToDelete.id && item.type === type)
+  )
+  list.value.splice(index, 1)
 }
 
-/**
- * Open edit medicine modal
- */
-const openEditMedicine = (medicine) => {
-  editingMedicine.value = {
-    id: medicine.id,
-    name: medicine.name,
-    oldPrice: medicine.price,
-    newPrice: medicine.price
+const openEditForm = (item, type) => {
+  editForm.value = {
+    type,
+    id: item.id,
+    name: item.name,
+    oldPrice: item.price,
+    newPrice: item.price
   }
-  showEditMedicineForm.value = true
+  showEditForm.value = true
   nextTick(() => {
     editPriceInput.value?.focus()
     editPriceInput.value?.select()
   })
 }
 
-/**
- * Close edit medicine modal
- */
-const closeEditMedicineForm = () => {
-  showEditMedicineForm.value = false
-  editingMedicine.value = {
-    id: null,
-    name: '',
-    oldPrice: null,
-    newPrice: null
-  }
+const closeEditForm = () => {
+  showEditForm.value = false
+  editForm.value = { type: 'medicine', id: null, name: '', oldPrice: null, newPrice: null }
 }
 
-/**
- * Update medicine price
- */
-const updateMedicinePrice = () => {
-  if (!editingMedicine.value.id || !editingMedicine.value.newPrice) return
-  
-  const medicine = medicines.value.find(m => m.id === editingMedicine.value.id)
-  if (medicine) {
-    medicine.price = Number(editingMedicine.value.newPrice)
-    
-    // Also update in cart if present
-    const cartItem = cartItems.value.find(
-      item => item.id === editingMedicine.value.id && item.type === 'medicine'
-    )
+/** Update price in the catalog and the current cart (saved sales keep the price they were sold at) */
+const updateItemPrice = () => {
+  const { type, id, newPrice } = editForm.value
+  if (!id || !newPrice || newPrice <= 0) return
+
+  const item = listFor(type).value.find(i => i.id === id)
+  if (item) {
+    item.price = Number(newPrice)
+
+    const cartItem = cartItems.value.find(c => c.id === id && c.type === type)
     if (cartItem) {
-      cartItem.price = Number(editingMedicine.value.newPrice)
+      cartItem.price = Number(newPrice)
     }
   }
-  
-  closeEditMedicineForm()
+
+  closeEditForm()
 }
 </script>
 
@@ -1143,10 +1125,10 @@ const updateMedicinePrice = () => {
 }
 
 /* ============================================
-   NEW: Medicines Section with Add Button
+   CATALOG SECTION (services & medicines) with Add Button
    ============================================ */
 
-.medicines-section {
+.catalog-section {
   flex: 1;
   min-height: 0;
   display: flex;
@@ -1154,7 +1136,7 @@ const updateMedicinePrice = () => {
   overflow: hidden;
 }
 
-.add-medicine-btn {
+.add-item-btn {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1172,18 +1154,35 @@ const updateMedicinePrice = () => {
   margin-bottom: 1rem;
 }
 
-.add-medicine-btn:hover {
+.add-item-btn:hover {
   transform: translateY(-2px);
   box-shadow: 0 6px 16px rgba(37, 99, 235, 0.4);
 }
 
-.add-medicine-btn:active {
+.add-item-btn:active {
   transform: translateY(0);
+}
+
+.add-item-btn.services {
+  background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+}
+
+.add-item-btn.services:hover {
+  box-shadow: 0 6px 16px rgba(16, 185, 129, 0.4);
 }
 
 .add-icon {
   width: 1.25rem;
   height: 1.25rem;
+}
+
+.catalog-empty {
+  grid-column: 1 / -1;
+  padding: 2rem 1rem;
+  text-align: center;
+  color: #9ca3af;
+  font-size: 0.875rem;
 }
 
 .products-grid {
@@ -1639,7 +1638,7 @@ const updateMedicinePrice = () => {
 }
 
 /* ============================================
-   NEW: MODAL STYLES
+   MODAL STYLES
    ============================================ */
 
 .modal-overlay {
@@ -1815,16 +1814,16 @@ const updateMedicinePrice = () => {
 }
 
 /* ============================================
-   MEDICINE CARD ACTIONS (Edit/Delete)
+   CARD ACTIONS (Edit/Delete) - services & medicines
    ============================================ */
 
-.medicine-card {
+.editable-card {
   position: relative;
   padding: 0;
   overflow: hidden;
 }
 
-.medicine-actions {
+.card-actions {
   position: absolute;
   top: 0.5rem;
   right: 0.5rem;
@@ -1836,12 +1835,12 @@ const updateMedicinePrice = () => {
 
 /* Hide actions until hover only on devices with a real mouse; touch users always see them */
 @media (hover: hover) and (pointer: fine) {
-  .medicine-actions {
+  .card-actions {
     opacity: 0;
   }
 
-  .medicine-card:hover .medicine-actions,
-  .medicine-actions:focus-within {
+  .editable-card:hover .card-actions,
+  .card-actions:focus-within {
     opacity: 1;
   }
 }
@@ -1885,7 +1884,7 @@ const updateMedicinePrice = () => {
   transform: scale(1.1);
 }
 
-.medicine-content {
+.card-content {
   width: 100%;
   display: flex;
   flex-direction: column;
@@ -1896,8 +1895,48 @@ const updateMedicinePrice = () => {
   cursor: pointer;
 }
 
-.medicine-content:hover {
+.medicine-card .card-content:hover {
   background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+}
+
+.service-card .card-content:hover {
+  background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%);
+}
+
+/* Add-service modal (green variant of the add modal) */
+.service-header {
+  background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+}
+
+.service-header .modal-title {
+  color: #065f46;
+}
+
+.service-header .modal-icon {
+  color: #059669;
+}
+
+.btn-service {
+  background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+  color: white;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+}
+
+.btn-service:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(16, 185, 129, 0.4);
+}
+
+.btn-service:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.form-hint {
+  margin-top: 0.375rem;
+  font-size: 0.8125rem;
+  color: #b45309;
 }
 
 /* Edit Modal Specific Styles */
@@ -1988,7 +2027,7 @@ const updateMedicinePrice = () => {
 /* Touch devices: always-visible card actions need room so they don't cover the icon,
    and disable "sticky" hover lift effects */
 @media (hover: none), (pointer: coarse) {
-  .medicine-content {
+  .card-content {
     padding-top: 2.5rem;
   }
 
@@ -1998,9 +2037,10 @@ const updateMedicinePrice = () => {
   }
 
   .product-card:hover,
-  .add-medicine-btn:hover,
+  .add-item-btn:hover,
   .confirm-btn:hover:not(:disabled),
   .btn-primary:hover:not(:disabled),
+  .btn-service:hover:not(:disabled),
   .btn-edit:hover:not(:disabled) {
     transform: none;
   }
@@ -2014,7 +2054,7 @@ const updateMedicinePrice = () => {
     overflow: visible;
   }
 
-  .medicines-section {
+  .catalog-section {
     overflow: visible;
   }
 
@@ -2111,11 +2151,11 @@ const updateMedicinePrice = () => {
   }
 
   .product-card,
-  .medicine-content {
+  .card-content {
     padding: 0.75rem;
   }
 
-  .medicine-card {
+  .editable-card {
     padding: 0;
   }
 
@@ -2159,7 +2199,7 @@ const updateMedicinePrice = () => {
 
 /* Touch + phone: keep icon clear of always-visible actions (overrides the 0.75rem padding above) */
 @media (max-width: 640px) and (hover: none), (max-width: 640px) and (pointer: coarse) {
-  .medicine-content {
+  .card-content {
     padding-top: 2.5rem;
   }
 }

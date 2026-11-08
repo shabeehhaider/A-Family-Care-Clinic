@@ -10,6 +10,7 @@
 const PREFIX = 'afcc.'
 
 export const STORAGE_KEYS = {
+  services: 'services',
   medicines: 'medicines',
   sales: 'sales',
   receiptCounter: 'receiptCounter',
@@ -43,6 +44,16 @@ export function removeFromStorage(key) {
   } catch {
     /* ignore */
   }
+}
+
+/** All saved sales (array, oldest first as recorded). */
+export function loadSales() {
+  const sales = loadFromStorage(STORAGE_KEYS.sales, [])
+  return Array.isArray(sales) ? sales : []
+}
+
+export function saveSales(sales) {
+  return saveToStorage(STORAGE_KEYS.sales, sales)
 }
 
 /** Local (not UTC) date as YYYYMMDD — UTC would roll over at 5am in Pakistan. */
