@@ -48,6 +48,22 @@ input[type="number"] {
    PRINT STYLES FOR 80MM THERMAL RECEIPT
    ============================================ */
 
+/*
+ * Used by usePrintReceipt.js: briefly renders the (normally hidden) receipt
+ * off-screen so its height can be measured to size the printed page.
+ */
+html.measuring-receipt .print-area {
+  display: block !important;
+}
+
+html.measuring-receipt #receipt {
+  display: block !important;
+  position: absolute !important;
+  left: -10000px !important;
+  top: 0 !important;
+  visibility: hidden !important;
+}
+
 @media print {
   /*
    * Page width is 80mm. The exact page HEIGHT is injected at print time by

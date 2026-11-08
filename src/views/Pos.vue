@@ -538,7 +538,8 @@
  * - Grand Total: Subtotal - Discount + Tax
  */
 
-import { ref, computed, nextTick, watch, onUnmounted } from 'vue'
+import { ref, computed, nextTick, watch } from 'vue'
+import { usePrintReceipt } from '@/composables/usePrintReceipt'
 import PosLayout from '@/components/pos/PosLayout.vue'
 import ItemList from '@/components/pos/ItemList.vue'
 import Receipt from '@/components/pos/Receipt.vue'
@@ -618,7 +619,7 @@ const selectedPaymentMethod = ref(draft.selectedPaymentMethod ?? 'cash')
 // Receipt: a frozen snapshot taken when the sale is confirmed (not live-computed),
 // so the number and time printed are those of the actual sale
 const receiptData = ref(createEmptyReceipt())
-const isPrinting = ref(false)
+const { isPrinting, printReceipt, cancelPrintWait } = usePrintReceipt()
 
 // Medicine Form
 const showMedicineForm = ref(false)
@@ -819,79 +820,7 @@ const resetAll = () => {
   taxRate.value = 0
   selectedPaymentMethod.value = 'cash'
   searchQuery.value = ''
-  stopWaitingForPrint()
-}
-
-// --- Printing ---------------------------------------------------------
-// Mobile/tablet browsers return from window.print() immediately (the print
-// UI is async), so we must NOT reset on a timer. Instead we wait for the
-// browser to tell us printing finished, via `afterprint` or the print
-// media query switching back off (fallback for browsers that lack it).
-
-let printMediaQuery = null
-
-const onPrintMediaChange = (e) => {
-  if (!e.matches) finishPrint()
-}
-
-function stopWaitingForPrint() {
-  window.removeEventListener('afterprint', finishPrint)
-  printMediaQuery?.removeEventListener?.('change', onPrintMediaChange)
-  printMediaQuery = null
-  isPrinting.value = false
-}
-
-function finishPrint() {
-  if (!isPrinting.value) return
-  stopWaitingForPrint()
-  resetAll()
-}
-
-/**
- * Sets the printed page to exactly 80mm × (receipt height).
- * The receipt is hidden on screen, so it is rendered off-screen briefly to
- * measure it. Without this, browsers fall back to A4 — a PDF becomes a full
- * page and some thermal drivers feed paper for the whole page length.
- */
-const setReceiptPageSize = async () => {
-  const container = document.querySelector('.receipt-container')
-  if (!container) return
-
-  // Logo must be loaded or the measured height will be too short
-  const logo = container.querySelector('img')
-  if (logo && !logo.complete) {
-    await new Promise(resolve => {
-      logo.addEventListener('load', resolve, { once: true })
-      logo.addEventListener('error', resolve, { once: true })
-    })
-  }
-
-  // Its parent (.print-area) is also display:none on screen
-  const parent = container.parentElement
-  const saved = [
-    [parent, parent.style.cssText],
-    [container, container.style.cssText]
-  ]
-  parent.style.cssText = 'display:block;position:absolute;left:-10000px;top:0;visibility:hidden;'
-  container.style.cssText = 'display:block;'
-
-  const heightPx = container.getBoundingClientRect().height
-
-  saved.forEach(([el, css]) => { el.style.cssText = css })
-
-  if (!heightPx) return
-
-  const PX_PER_MM = 96 / 25.4
-  const FEED_MM = 6 // a little blank paper so the cutter doesn't clip the last line
-  const heightMm = Math.ceil(heightPx / PX_PER_MM) + FEED_MM
-
-  let styleEl = document.getElementById('receipt-page-size')
-  if (!styleEl) {
-    styleEl = document.createElement('style')
-    styleEl.id = 'receipt-page-size'
-    document.head.appendChild(styleEl)
-  }
-  styleEl.textContent = `@media print { @page { size: 80mm ${heightMm}mm; margin: 0; } }`
+  cancelPrintWait()
 }
 
 const confirmSale = async () => {
@@ -909,22 +838,9 @@ const confirmSale = async () => {
     alert('Warning: this sale could not be saved to sales history (browser storage is unavailable or full). The receipt will still print.')
   }
 
-  isPrinting.value = true
-
-  // Let Vue render the receipt before the print dialog captures the page
-  await nextTick()
-  await setReceiptPageSize()
-
-  window.addEventListener('afterprint', finishPrint)
-  if (window.matchMedia) {
-    printMediaQuery = window.matchMedia('print')
-    printMediaQuery.addEventListener?.('change', onPrintMediaChange)
-  }
-
-  window.print()
+  // Cart is reset only once the browser reports printing finished
+  await printReceipt(resetAll)
 }
-
-onUnmounted(stopWaitingForPrint)
 
 const scrollToCheckout = () => {
   checkoutPanel.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })

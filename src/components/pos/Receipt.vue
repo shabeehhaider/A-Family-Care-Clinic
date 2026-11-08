@@ -21,6 +21,9 @@
 
       <div class="divider solid"></div>
 
+      <!-- Reprint marker so a copy can't be mistaken for a new sale -->
+      <div v-if="reprint" class="duplicate-mark">** DUPLICATE COPY **</div>
+
       <!-- Receipt Info -->
       <div class="receipt-info">
         <div class="receipt-number">
@@ -133,6 +136,11 @@ defineProps({
       grandTotal: 0,
       paymentMethod: 'Cash'
     })
+  },
+  // true when reprinting from Sales History
+  reprint: {
+    type: Boolean,
+    default: false
   }
 })
 
@@ -185,6 +193,16 @@ const logoUrl = logoImage
 
 .divider.solid {
   border-top: 2px solid #000;
+}
+
+.duplicate-mark {
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  padding: 1mm 0;
+  margin-bottom: 2mm;
+  border: 2px solid #000;
 }
 
 /* Receipt Info */
