@@ -47,8 +47,15 @@ const router = createRouter({
  * - Not logged in → /login?redirect=…
  * - Admin-only pages → POS for cashiers
  */
-router.beforeEach((to) => {
-  const { hasUsers, currentUser, isAdmin } = useAuth()
+router.beforeEach(async (to) => {
+  const { hasUsers, currentUser, isAdmin, init } = useAuth()
+
+  try {
+    await init()
+  } catch {
+    // Server unreachable: the login page shows the problem and a Retry button
+    return to.name === 'Login' ? true : { name: 'Login' }
+  }
 
   if (to.meta.public) {
     // Already logged in: skip the login page

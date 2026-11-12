@@ -48,7 +48,7 @@
         New stock: <strong>{{ newStock }}</strong>
       </p>
 
-      <p v-if="error" class="form-error" role="alert">{{ error }}</p>
+      <p v-if="error || serverError" class="form-error" role="alert">{{ error || serverError }}</p>
 
       <div class="form-actions">
         <button type="button" class="btn btn-secondary" @click="emit('close')">Cancel</button>
@@ -59,14 +59,16 @@
 </template>
 
 <script setup>
-/** Add received units, or set the exact count after a stock take. Emits save(newStock). */
+/** Add received units, or set the exact count after a stock take. Emits save({ mode, quantity }). */
 import { ref, computed, watch, useId } from 'vue'
 import BaseModal from '@/components/BaseModal.vue'
 import { isTracked } from '@/utils/inventory'
 
 const props = defineProps({
   open: { type: Boolean, default: false },
-  medicine: { type: Object, default: null }
+  medicine: { type: Object, default: null },
+  /** error returned by the server when saving */
+  serverError: { type: String, default: '' }
 })
 
 const emit = defineEmits(['save', 'close'])
@@ -108,7 +110,7 @@ const submit = () => {
     return
   }
   if (newStock.value === null) return
-  emit('save', newStock.value)
+  emit('save', { mode: mode.value, quantity: parsed.value })
 }
 </script>
 

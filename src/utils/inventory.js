@@ -5,7 +5,7 @@
  * medicines (stock null/undefined — e.g. items saved before stock existed)
  * can always be sold and are never adjusted.
  */
-import { parseDateInputValue } from './format'
+import { parseDateInputValue } from './format.js'
 
 export const DEFAULT_LOW_STOCK = 10
 export const EXPIRY_WARNING_DAYS = 30

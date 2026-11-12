@@ -1,6 +1,7 @@
 /**
- * Smoke test: server-renders every page with seeded data to catch template /
- * runtime errors (undefined references, bad props) without a browser.
+ * Smoke test: server-renders every page to catch template / runtime errors
+ * (undefined references, bad props) without a browser. The POS server is
+ * replaced by a stand-in API client returning sample data.
  */
 import { describe, it, expect, beforeAll, vi } from 'vitest'
 import { createSSRApp } from 'vue'
@@ -8,8 +9,36 @@ import { renderToString } from 'vue/server-renderer'
 import { createRouter, createMemoryHistory } from 'vue-router'
 import { installMemoryStorage } from './helpers/memoryStorage'
 
-const admin = { id: 'u1', name: 'Dr. Ayesha', role: 'admin', salt: 'aa', pinHash: 'x' }
-const cashier = { id: 'u2', name: 'Sara', role: 'cashier', salt: 'bb', pinHash: 'y' }
+const admin = { id: 'u1', name: 'Dr. Ayesha', role: 'admin' }
+const cashier = { id: 'u2', name: 'Sara', role: 'cashier' }
+
+const catalog = {
+  services: [{ id: 's1', name: 'Consultation', price: 500 }],
+  medicines: [
+    { id: 'm1', name: 'Paracetamol 500mg', price: 50, stock: 3, lowStockAt: 10, expiry: '' },
+    { id: 'm2', name: 'Old Syrup', price: 90, stock: 0, lowStockAt: 5, expiry: '2020-01-01' },
+    { id: 'm3', name: 'Untracked', price: 10, stock: null }
+  ]
+}
+
+const RESPONSES = {
+  '/auth/status': { hasUsers: true, users: [admin, cashier] },
+  '/auth/me': { user: admin },
+  '/catalog': catalog,
+  '/sales': [],
+  '/data/info': { storage: 'database', location: 'Postgres database (test)', lastAutoBackup: '2026-11-09', backupKeepDays: 30 },
+  '/data/months': []
+}
+
+const fakeApi = {
+  get: vi.fn(async (url) => {
+    if (!(url in RESPONSES)) throw new Error(`unexpected GET ${url}`)
+    return { data: structuredClone(RESPONSES[url]) }
+  }),
+  post: vi.fn(async () => ({ data: {} })),
+  put: vi.fn(async () => ({ data: {} })),
+  delete: vi.fn(async () => ({ data: {} }))
+}
 
 let views
 
@@ -35,34 +64,22 @@ async function render(component, path = '/') {
 }
 
 beforeAll(async () => {
-  const { localStorage, sessionStorage } = installMemoryStorage()
-  const now = new Date()
-  localStorage.setItem('afcc.users', JSON.stringify([admin, cashier]))
-  localStorage.setItem('afcc.medicines', JSON.stringify([
-    { id: 'm1', name: 'Paracetamol 500mg', price: 50, stock: 3, lowStockAt: 10, expiry: '' },
-    { id: 'm2', name: 'Old Syrup', price: 90, stock: 0, lowStockAt: 5, expiry: '2020-01-01' },
-    { id: 'm3', name: 'Untracked', price: 10 }
-  ]))
-  localStorage.setItem('afcc.sales', JSON.stringify([
-    {
-      receiptNumber: 'RC-TEST-001',
-      createdAt: now.toISOString(),
-      cashier: { id: 'u2', name: 'Sara' },
-      patientName: 'Ali',
-      items: [{ id: 'm1', name: 'Paracetamol 500mg', price: 50, quantity: 2, type: 'medicine' }],
-      subtotal: 100, discount: 0, tax: 0, grandTotal: 100, paymentMethod: 'Cash'
-    },
-    {
-      receiptNumber: 'RC-TEST-002',
-      createdAt: now.toISOString(),
-      items: [], subtotal: 0, discount: 0, tax: 0, grandTotal: 500, paymentMethod: 'Card',
-      voided: { at: now.toISOString(), reason: 'Wrong item', by: { name: 'Dr. Ayesha' } }
-    }
-  ]))
-  sessionStorage.setItem('afcc.session', 'u1')
-
-  // Import after storage is seeded (composables read it at module load)
+  installMemoryStorage()
   vi.resetModules()
+  vi.doMock('@/api/client', () => ({
+    api: fakeApi,
+    apiError: (e) => e?.message || 'error',
+    getToken: () => 'test-token',
+    setToken: () => {},
+    onUnauthorized: () => {}
+  }))
+
+  // Load login + catalog the way the router / pages do
+  const { useAuth } = await import('../src/composables/useAuth.js')
+  const { useCatalog } = await import('../src/composables/useCatalog.js')
+  await useAuth().init()
+  await useCatalog().load()
+
   views = {
     Pos: (await import('../src/views/Pos.vue')).default,
     SalesHistory: (await import('../src/views/SalesHistory.vue')).default,
@@ -73,7 +90,7 @@ beforeAll(async () => {
 })
 
 describe('pages render', () => {
-  it('POS shows catalog, stock badges and admin controls', async () => {
+  it('POS shows catalog and admin controls', async () => {
     const html = await render(views.Pos)
     expect(html).toContain('Patient Information')
     expect(html).toContain('Consultation')
@@ -82,21 +99,19 @@ describe('pages render', () => {
     expect(html).toContain('Dr. Ayesha')
   })
 
-  it('Sales History lists sales, voids and totals', async () => {
+  it('Sales History renders and starts loading from the server', async () => {
     const html = await render(views.SalesHistory, '/sales')
-    expect(html).toContain('RC-TEST-001')
-    expect(html).toContain('RC-TEST-002')
-    expect(html).toContain('VOID')
-    expect(html).toContain('by Sara')
+    expect(html).toContain('Sales History')
     expect(html).toContain('Print Report')
-    expect(html).toContain('1 voided')
+    expect(fakeApi.get).toHaveBeenCalledWith('/sales', expect.objectContaining({ params: expect.any(Object) }))
   })
 
-  it('Settings lists users and backup', async () => {
+  it('Settings lists users and the data section', async () => {
     const html = await render(views.Settings, '/settings')
     expect(html).toContain('Sara')
+    expect(html).toContain('Data &amp; Backups')
+    expect(html).toContain('Monthly sales files')
     expect(html).toContain('Download Backup')
-    expect(html).toContain('No backup has been made yet')
   })
 
   it('Inventory lists medicines with status and admin actions', async () => {

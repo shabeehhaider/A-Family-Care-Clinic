@@ -39,7 +39,7 @@ export default [
 
   // Node-side config files and tests
   {
-    files: ['*.config.{js,cjs}', 'tests/**/*.js'],
+    files: ['*.config.{js,cjs}', 'tests/**/*.js', 'server/**/*.js', 'api/**/*.js'],
     languageOptions: { globals: { ...globals.node } }
   },
   {

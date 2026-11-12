@@ -93,7 +93,7 @@
         </div>
       </fieldset>
 
-      <p v-if="error" class="form-error" role="alert">{{ error }}</p>
+      <p v-if="error || serverError" class="form-error" role="alert">{{ error || serverError }}</p>
 
       <div class="form-actions">
         <button type="button" class="btn btn-secondary" @click="emit('close')">Cancel</button>
@@ -130,7 +130,9 @@ const props = defineProps({
   /** item being edited (edit mode) */
   item: { type: Object, default: null },
   /** (name, exceptId) => boolean */
-  isNameTaken: { type: Function, required: true }
+  isNameTaken: { type: Function, required: true },
+  /** error returned by the server when saving */
+  serverError: { type: String, default: '' }
 })
 
 const emit = defineEmits(['save', 'close'])

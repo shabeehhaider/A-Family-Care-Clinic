@@ -16,6 +16,12 @@ export default defineConfig(({ mode }) => ({
       '@': fileURLToPath(new URL('./src', import.meta.url))
     },
   },
+  server: {
+    // dev: send /api to the POS server (npm run server)
+    proxy: {
+      '/api': 'http://localhost:3001',
+    },
+  },
   test: {
     include: ['tests/**/*.test.js'],
     environment: 'node',

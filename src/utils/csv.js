@@ -1,8 +1,8 @@
 /**
  * CSV export helpers — pure functions (unit tested in tests/csv.test.js).
  */
-import { saleTime, itemCount } from './sales'
-import { formatIso, pad2 } from './format'
+import { saleTime, itemCount } from './sales.js'
+import { formatIso, pad2 } from './format.js'
 
 /** Quote a CSV cell; neutralise values Excel would execute as formulas. */
 export function csvCell(value) {

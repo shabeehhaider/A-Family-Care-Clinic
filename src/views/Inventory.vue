@@ -3,6 +3,10 @@
     <AppHeader />
 
     <main class="inventory-main no-print">
+      <div v-if="loadError" class="page-message error" role="alert">
+        Couldn't load medicines: {{ loadError }}
+        <button type="button" class="retry-link" @click="load">Retry</button>
+      </div>
       <!-- Title + search -->
       <div class="page-head">
         <div>
@@ -138,7 +142,13 @@
       :printed-by="printData.printedBy"
     />
 
-    <StockAdjustModal :open="adjustTarget !== null" :medicine="adjustTarget" @save="saveStock" @close="adjustTarget = null" />
+    <StockAdjustModal
+      :open="adjustTarget !== null"
+      :medicine="adjustTarget"
+      :server-error="adjustError"
+      @save="saveStock"
+      @close="adjustTarget = null"
+    />
 
     <ItemFormModal
       :open="itemForm.open"
@@ -146,6 +156,7 @@
       type="medicine"
       :item="itemForm.item"
       :is-name-taken="(name, exceptId) => isNameTaken('medicine', name, exceptId)"
+      :server-error="itemForm.error"
       @save="saveItem"
       @close="itemForm.open = false"
     />
@@ -179,7 +190,8 @@ const SHORT_LABELS = {
   expired: 'EXPIRED', out: 'OUT', low: 'LOW', expiring: 'EXP SOON', unset: '-', ok: 'OK'
 }
 
-const { medicines, isNameTaken, addItem, updateItem } = useCatalog()
+const { medicines, isNameTaken, addItem, updateItem, setStock, load, ensureLoaded, loadError } = useCatalog()
+ensureLoaded()
 const { currentUser, isAdmin } = useAuth()
 const { isPrinting, printReceipt } = usePrintReceipt()
 
@@ -246,29 +258,42 @@ const filterLabel = computed(() => {
 
 // ---------- Admin actions ----------
 const adjustTarget = ref(null)
+const adjustError = ref('')
 
 const openAdjust = (item) => {
-  if (isAdmin.value) adjustTarget.value = item
+  if (!isAdmin.value) return
+  adjustError.value = ''
+  adjustTarget.value = item
 }
 
-const saveStock = (newStock) => {
-  if (adjustTarget.value) updateItem('medicine', adjustTarget.value.id, { stock: newStock })
+const saveStock = async ({ mode, quantity }) => {
+  if (!adjustTarget.value) return
+  const result = await setStock(adjustTarget.value.id, mode, quantity)
+  if (!result.ok) {
+    adjustError.value = result.error
+    return
+  }
   adjustTarget.value = null
 }
 
-const itemForm = reactive({ open: false, mode: 'add', item: null })
+const itemForm = reactive({ open: false, mode: 'add', item: null, error: '' })
 
 const openAdd = () => {
-  if (isAdmin.value) Object.assign(itemForm, { open: true, mode: 'add', item: null })
+  if (isAdmin.value) Object.assign(itemForm, { open: true, mode: 'add', item: null, error: '' })
 }
 
 const openEdit = (item) => {
-  if (isAdmin.value) Object.assign(itemForm, { open: true, mode: 'edit', item })
+  if (isAdmin.value) Object.assign(itemForm, { open: true, mode: 'edit', item, error: '' })
 }
 
-const saveItem = (data) => {
-  if (itemForm.mode === 'edit' && itemForm.item) updateItem('medicine', itemForm.item.id, data)
-  else addItem('medicine', data)
+const saveItem = async (data) => {
+  const result = itemForm.mode === 'edit' && itemForm.item
+    ? await updateItem('medicine', itemForm.item.id, data)
+    : await addItem('medicine', data)
+  if (!result.ok) {
+    itemForm.error = result.error
+    return
+  }
   itemForm.open = false
 }
 
@@ -310,6 +335,29 @@ const exportCsv = () => {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+}
+
+.page-message {
+  padding: 0.75rem 1rem;
+  border-radius: 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.page-message.error {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+}
+
+.retry-link {
+  margin-left: 0.5rem;
+  border: none;
+  background: none;
+  color: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 /* Head */

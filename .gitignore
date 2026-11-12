@@ -34,3 +34,6 @@ coverage
 
 # Vitest
 __screenshots__/
+
+# POS server data (sales, staff, backups) — never commit
+server-data/

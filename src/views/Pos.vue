@@ -9,6 +9,10 @@
     <template #products>
       <div class="products-container">
         <PatientInfo v-model:name="patientName" v-model:phone="patientPhone" />
+        <div v-if="loadError" class="load-error" role="alert">
+          <span>Couldn't load services and medicines: {{ loadError }}</span>
+          <button type="button" class="retry-btn" @click="loadCatalog">Retry</button>
+        </div>
         <CatalogPanel
           :services="services"
           :medicines="medicines"
@@ -45,7 +49,7 @@
           v-model:method="selectedPaymentMethod"
           :methods="PAYMENT_METHODS"
           :can-confirm="cartItems.length > 0"
-          :busy="isPrinting"
+          :busy="isPrinting || saving"
           @confirm="confirmSale"
           @clear="clearCart"
           @reset="resetAll"
@@ -87,6 +91,7 @@
     :type="itemForm.type"
     :item="itemForm.item"
     :is-name-taken="(name, exceptId) => isNameTaken(itemForm.type, name, exceptId)"
+    :server-error="itemForm.error"
     @save="saveItem"
     @close="itemForm.open = false"
   />
@@ -103,23 +108,22 @@ import PaymentPanel from '@/components/pos/PaymentPanel.vue'
 import Receipt from '@/components/pos/Receipt.vue'
 import ItemFormModal from '@/components/pos/ItemFormModal.vue'
 import { useCatalog } from '@/composables/useCatalog'
-import { useAuth, userRef } from '@/composables/useAuth'
+import { useAuth } from '@/composables/useAuth'
 import { usePrintReceipt } from '@/composables/usePrintReceipt'
 import { PAYMENT_METHODS } from '@/data/defaultCatalog'
 import { calcTotals, countUnits } from '@/utils/billing'
 import { stockStatus, availableToAdd, isTracked } from '@/utils/inventory'
 import { formatAmount } from '@/utils/format'
-import {
-  STORAGE_KEYS,
-  loadFromStorage,
-  saveToStorage,
-  loadSales,
-  saveSales,
-  nextReceiptNumber
-} from '@/utils/storage'
+import { STORAGE_KEYS, loadFromStorage, saveToStorage } from '@/utils/storage'
+import { api, apiError } from '@/api/client'
 
-const { services, medicines, findItem, isNameTaken, addItem, updateItem, deleteItem, deductStock } = useCatalog()
-const { currentUser, isAdmin } = useAuth()
+const {
+  services, medicines, loadError, load: loadCatalog, ensureLoaded,
+  findItem, isNameTaken, addItem, updateItem, deleteItem
+} = useCatalog()
+const { isAdmin } = useAuth()
+
+ensureLoaded()
 const { isPrinting, printReceipt, cancelPrintWait } = usePrintReceipt()
 
 // ---------- Sale in progress (restored after an accidental refresh) ----------
@@ -259,34 +263,12 @@ function emptyReceipt() {
   }
 }
 
-/** Immutable snapshot of the sale, taken once at confirmation. */
-function buildSale() {
-  const now = new Date()
-  const t = totals.value
-  return {
-    receiptNumber: nextReceiptNumber(),
-    createdAt: now.toISOString(),
-    date: now.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }),
-    time: now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-    cashier: userRef(currentUser.value),
-    patientName: patientName.value.trim(),
-    patientPhone: patientPhone.value.trim(),
-    items: cartItems.value.map(({ id, name, price, quantity, type }) => ({ id, name, price, quantity, type })),
-    subtotal: t.subtotal,
-    discount: t.discount,
-    discountType: discountType.value,
-    discountValue: Number(discountValue.value) || 0,
-    tax: t.tax,
-    taxRate: enableTax.value ? Number(taxRate.value) || 0 : 0,
-    grandTotal: t.total,
-    paymentMethod: PAYMENT_METHODS.find(m => m.id === selectedPaymentMethod.value)?.name || 'Cash'
-  }
-}
+const saving = ref(false)
 
 const confirmSale = async () => {
-  if (cartItems.value.length === 0 || isPrinting.value) return
+  if (cartItems.value.length === 0 || isPrinting.value || saving.value) return
 
-  // Stock may have changed since items were added (e.g. edited by an admin)
+  // Quick check here; the server checks stock again before saving
   for (const row of cartItems.value) {
     if (row.type !== 'medicine') continue
     const medicine = findItem('medicine', row.id)
@@ -301,44 +283,65 @@ const confirmSale = async () => {
     }
   }
 
-  const sale = buildSale()
-  receiptData.value = sale
-
-  const sales = loadSales()
-  sales.push(sale)
-  if (!saveSales(sales)) {
-    alert('Warning: this sale could not be saved to sales history (browser storage is unavailable or full). The receipt will still print.')
+  // The server sets prices, receipt number and cashier, and updates stock
+  saving.value = true
+  let sale
+  try {
+    const { data } = await api.post('/sales', {
+      items: cartItems.value.map(({ id, type, quantity }) => ({ id, type, quantity })),
+      patientName: patientName.value,
+      patientPhone: patientPhone.value,
+      discountType: discountType.value,
+      discountValue: Number(discountValue.value) || 0,
+      enableTax: enableTax.value,
+      taxRate: Number(taxRate.value) || 0,
+      paymentMethod: selectedPaymentMethod.value
+    })
+    sale = data
+  } catch (err) {
+    notify(`Sale not saved: ${apiError(err)}`)
+    loadCatalog() // stock may have changed
+    return
+  } finally {
+    saving.value = false
   }
-  deductStock(sale.items)
+
+  receiptData.value = sale
+  loadCatalog() // show the new stock numbers
 
   // Cart resets only once the browser reports printing finished
   await printReceipt(resetAll)
 }
 
 // ---------- Catalog editing (admin) ----------
-const itemForm = reactive({ open: false, mode: 'add', type: 'medicine', item: null })
+const itemForm = reactive({ open: false, mode: 'add', type: 'medicine', item: null, error: '' })
 
 const openItemForm = (mode, type, item = null) => {
   if (!isAdmin.value) return
-  Object.assign(itemForm, { open: true, mode, type, item })
+  Object.assign(itemForm, { open: true, mode, type, item, error: '' })
 }
 
-const saveItem = (data) => {
-  if (itemForm.mode === 'edit' && itemForm.item) {
-    const updated = updateItem(itemForm.type, itemForm.item.id, data)
+const saveItem = async (data) => {
+  const editing = itemForm.mode === 'edit' && itemForm.item
+  const result = editing
+    ? await updateItem(itemForm.type, itemForm.item.id, data)
+    : await addItem(itemForm.type, data)
+  if (!result.ok) {
+    itemForm.error = result.error
+    return
+  }
+  if (editing) {
     // Keep the open cart in step (saved sales keep what they were sold at)
-    const row = cartItems.value.find(c => c.id === itemForm.item.id && c.type === itemForm.type)
-    if (row && updated) {
-      row.name = updated.name
-      row.price = updated.price
+    const row = cartItems.value.find(c => c.id === result.item.id && c.type === itemForm.type)
+    if (row) {
+      row.name = result.item.name
+      row.price = result.item.price
     }
-  } else {
-    addItem(itemForm.type, data)
   }
   itemForm.open = false
 }
 
-const confirmDeleteItem = (item, type) => {
+const confirmDeleteItem = async (item, type) => {
   if (!isAdmin.value) return
   const inCart = quantityInCart(type, item.id) > 0
   const message = `Delete "${item.name}"?` +
@@ -346,8 +349,12 @@ const confirmDeleteItem = (item, type) => {
     '\n\nThis cannot be undone.'
   if (!window.confirm(message)) return
 
+  const result = await deleteItem(type, item.id)
+  if (!result.ok) {
+    notify(result.error)
+    return
+  }
   cartItems.value = cartItems.value.filter(c => !(c.id === item.id && c.type === type))
-  deleteItem(type, item.id)
 }
 
 // ---------- Mobile ----------
@@ -392,6 +399,31 @@ const scrollToCheckout = () => {
 .cart-section {
   flex-shrink: 0;
   margin-bottom: 1rem;
+}
+
+.load-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.75rem;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+  font-size: 0.875rem;
+}
+
+.retry-btn {
+  flex-shrink: 0;
+  padding: 0.375rem 0.875rem;
+  border: none;
+  border-radius: 0.5rem;
+  background: #dc2626;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
 }
 
 /* Notices */

@@ -1,74 +1,57 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { installMemoryStorage } from './helpers/memoryStorage'
-import { createBackup, validateBackup, restoreBackup, backupFilename, BACKUP_APP_ID } from '../src/utils/backup'
-import { loadFromStorage, saveToStorage } from '../src/utils/storage'
+import {
+  readBrowserData, summarizeBrowserBackup, hasBrowserData, backupKind, summarizeServerBackup,
+  BROWSER_BACKUP_APP, SERVER_BACKUP_APP
+} from '../src/utils/backup'
 
-const admin = { id: 'u1', name: 'Dr. A', role: 'admin', salt: 'aa', pinHash: 'hash' }
+describe('old browser data (for import into the server)', () => {
+  let storage
 
-const validBackup = (data = {}) => ({
-  app: BACKUP_APP_ID,
-  version: 1,
-  exportedAt: '2026-11-08T10:00:00.000Z',
-  data: {
-    services: [{ id: 's1' }],
-    medicines: [{ id: 'm1' }, { id: 'm2' }],
-    sales: [{ receiptNumber: 'A' }],
-    receiptCounter: { date: '20261108', seq: 1 },
-    users: [admin],
-    ...data
-  }
-})
-
-describe('validateBackup', () => {
-  it('accepts a good backup and summarises it', () => {
-    expect(validateBackup(validBackup())).toEqual({
-      ok: true,
-      summary: { exportedAt: '2026-11-08T10:00:00.000Z', sales: 1, services: 1, medicines: 2, users: 1 }
-    })
-  })
-
-  it('rejects other files', () => {
-    expect(validateBackup(null).ok).toBe(false)
-    expect(validateBackup({ app: 'something-else', version: 1, data: {} }).ok).toBe(false)
-  })
-
-  it('rejects backups from a newer version', () => {
-    expect(validateBackup({ ...validBackup(), version: 99 }).ok).toBe(false)
-  })
-
-  it('rejects damaged sections', () => {
-    expect(validateBackup(validBackup({ sales: 'oops' })).ok).toBe(false)
-  })
-
-  it('rejects backups nobody could log in to', () => {
-    const result = validateBackup(validBackup({ users: [{ ...admin, role: 'cashier' }] }))
-    expect(result.ok).toBe(false)
-    expect(result.error).toMatch(/admin/)
-  })
-})
-
-describe('createBackup / restoreBackup', () => {
   beforeEach(() => {
-    installMemoryStorage()
+    storage = installMemoryStorage()
   })
 
-  it('round-trips all data and clears the in-progress cart', () => {
-    saveToStorage('sales', [{ receiptNumber: 'OLD' }])
-    saveToStorage('draft', { cartItems: [{ id: 'x' }] })
-
-    restoreBackup(validBackup())
-
-    expect(loadFromStorage('sales')).toEqual([{ receiptNumber: 'A' }])
-    expect(loadFromStorage('users')).toEqual([admin])
-    expect(loadFromStorage('draft', null)).toBe(null)
-
-    const backup = createBackup(new Date('2026-11-09T00:00:00Z'))
-    expect(backup.app).toBe(BACKUP_APP_ID)
-    expect(backup.data.medicines).toHaveLength(2)
-    expect(validateBackup(backup).ok).toBe(true)
+  it('is absent on a fresh browser', () => {
+    expect(hasBrowserData()).toBe(false)
+    expect(summarizeBrowserBackup(readBrowserData())).toEqual({ sales: 0, services: 0, medicines: 0 })
   })
 
-  it('names files with date and time', () => {
-    expect(backupFilename(new Date(2026, 10, 8, 9, 5))).toBe('afcc-backup-2026-11-08_0905.json')
+  it('reads what the old version saved', () => {
+    storage.localStorage.setItem('afcc.sales', JSON.stringify([{ receiptNumber: 'A' }, { receiptNumber: 'B' }]))
+    storage.localStorage.setItem('afcc.medicines', JSON.stringify([{ id: 'm1' }]))
+    storage.localStorage.setItem('afcc.receiptCounter', JSON.stringify({ date: '20261108', seq: 2 }))
+
+    const backup = readBrowserData()
+    expect(backup.app).toBe(BROWSER_BACKUP_APP)
+    expect(backup.data.receiptCounter).toEqual({ date: '20261108', seq: 2 })
+    expect(summarizeBrowserBackup(backup)).toEqual({ sales: 2, services: 0, medicines: 1 })
+    expect(hasBrowserData()).toBe(true)
+  })
+
+  it('ignores damaged sales data', () => {
+    storage.localStorage.setItem('afcc.sales', '{"not":"a list"}')
+    expect(readBrowserData().data.sales).toEqual([])
+  })
+})
+
+describe('backup files', () => {
+  it('tells server and old-browser backups apart', () => {
+    expect(backupKind({ app: SERVER_BACKUP_APP })).toBe('server')
+    expect(backupKind({ app: BROWSER_BACKUP_APP })).toBe('browser')
+    expect(backupKind({ app: 'other' })).toBe(null)
+    expect(backupKind(null)).toBe(null)
+  })
+
+  it('summarises a server backup', () => {
+    const summary = summarizeServerBackup({
+      exportedAt: '2026-11-09T10:00:00.000Z',
+      data: {
+        users: [{}, {}],
+        catalog: { services: [{}], medicines: [{}, {}, {}] },
+        sales: { '2026-10': [{}, {}], '2026-11': [{}] }
+      }
+    })
+    expect(summary).toEqual({ exportedAt: '2026-11-09T10:00:00.000Z', months: 2, sales: 3, services: 1, medicines: 3, users: 2 })
   })
 })

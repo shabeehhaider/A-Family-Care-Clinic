@@ -3,8 +3,19 @@
     <main class="login-card" :aria-labelledby="headingId">
       <img :src="logoUrl" alt="" class="login-logo" />
 
+      <!-- Server not reachable -->
+      <template v-if="offline">
+        <h1 :id="headingId" class="login-title">Can't connect</h1>
+        <p class="login-subtitle">{{ offlineMessage }}</p>
+        <div class="form-actions">
+          <button type="button" class="btn btn-success" :disabled="retrying" @click="retry">
+            {{ retrying ? 'Connecting…' : 'Try Again' }}
+          </button>
+        </div>
+      </template>
+
       <!-- First run: create the admin -->
-      <template v-if="!hasUsers">
+      <template v-else-if="!hasUsers">
         <h1 :id="headingId" class="login-title">Welcome</h1>
         <p class="login-subtitle">Create your account to get started.</p>
 
@@ -26,7 +37,7 @@
           <p class="form-hint pin-hint">PIN is 4 to 6 numbers. You'll use it to log in.</p>
           <p v-if="error" class="form-error" role="alert">{{ error }}</p>
           <div class="form-actions">
-            <button type="submit" class="btn btn-success">Get Started</button>
+            <button type="submit" class="btn btn-success" :disabled="busy">Get Started</button>
           </div>
         </form>
       </template>
@@ -70,7 +81,9 @@
           </div>
           <p v-if="error" class="form-error" role="alert">{{ error }}</p>
           <div class="form-actions">
-            <button type="submit" class="btn btn-success" :disabled="pin.length < 4">Unlock</button>
+            <button type="submit" class="btn btn-success" :disabled="pin.length < 4 || busy">
+              {{ busy ? 'Checking…' : 'Unlock' }}
+            </button>
           </div>
         </form>
       </template>
@@ -82,15 +95,39 @@
 import { ref, reactive, computed, nextTick, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuth } from '@/composables/useAuth'
+import { apiError } from '@/api/client'
 import PasswordInput from '@/components/PasswordInput.vue'
 import logoUrl from '@/assets/logo.jpeg'
 
 const router = useRouter()
 const route = useRoute()
-const { users, hasUsers, createUser, login } = useAuth()
+const { users, hasUsers, init, setup: setupAdmin, login } = useAuth()
 
 const headingId = 'login-heading'
 const error = ref('')
+const busy = ref(false)
+
+// ---------- Server connection ----------
+const offline = ref(false)
+const offlineMessage = ref('')
+const retrying = ref(false)
+
+const checkServer = async () => {
+  try {
+    await init()
+    offline.value = false
+  } catch (err) {
+    offline.value = true
+    offlineMessage.value = apiError(err)
+  }
+}
+
+const retry = async () => {
+  retrying.value = true
+  await checkServer()
+  retrying.value = false
+  if (!offline.value) preselect()
+}
 
 const goNext = () => {
   const redirect = typeof route.query.redirect === 'string' && route.query.redirect.startsWith('/')
@@ -102,18 +139,19 @@ const goNext = () => {
 // ---------- Setup ----------
 const setupForm = reactive({ name: '', pin: '', pin2: '' })
 
-const setup = () => {
+const setup = async () => {
   error.value = ''
   if (setupForm.pin !== setupForm.pin2) {
     error.value = "PINs don't match. Please try again."
     return
   }
-  const result = createUser({ name: setupForm.name, role: 'admin', pin: setupForm.pin })
+  busy.value = true
+  const result = await setupAdmin(setupForm.name, setupForm.pin)
+  busy.value = false
   if (!result.ok) {
     error.value = result.error
     return
   }
-  login(result.user.id, setupForm.pin)
   goNext()
 }
 
@@ -132,9 +170,11 @@ const selectUser = async (id) => {
   pinInput.value?.focus()
 }
 
-const submitLogin = () => {
+const submitLogin = async () => {
   error.value = ''
-  const result = login(selectedId.value, pin.value)
+  busy.value = true
+  const result = await login(selectedId.value, pin.value)
+  busy.value = false
   if (!result.ok) {
     error.value = result.error
     pin.value = ''
@@ -147,10 +187,16 @@ const submitLogin = () => {
 const initials = (name) =>
   name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('')
 
-onMounted(() => {
+const preselect = async () => {
+  await nextTick()
   // Single user: preselect
   if (users.value.length === 1) selectUser(users.value[0].id)
   else document.querySelector('[data-autofocus]')?.focus()
+}
+
+onMounted(async () => {
+  await checkServer() // init() is cached, so this is instant when already connected
+  if (!offline.value) preselect()
 })
 </script>
 

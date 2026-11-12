@@ -1,92 +1,67 @@
 /**
- * Full-data backup & restore (JSON).
- *
- * The backup holds everything needed to rebuild the POS on another device or
- * after browser data is cleared: catalog, sales history, receipt counter and
- * users (PINs stay hashed). The in-progress cart is not included.
+ * Data saved by the old browser-only version (localStorage), so it can be
+ * imported into the server once. Also understands backup files that the old
+ * version downloaded ("afcc-pos" format).
  */
-import { STORAGE_KEYS, loadFromStorage, saveToStorage, removeFromStorage } from './storage'
-import { pad2 } from './format'
+import { STORAGE_KEYS, loadFromStorage, saveToStorage } from './storage.js'
 
-export const BACKUP_APP_ID = 'afcc-pos'
-export const BACKUP_VERSION = 1
+export const BROWSER_BACKUP_APP = 'afcc-pos'
+export const SERVER_BACKUP_APP = 'afcc-pos-server'
 
-const DATA_KEYS = ['services', 'medicines', 'sales', 'receiptCounter', 'users']
-
-export function createBackup(now = new Date()) {
-  const data = {}
-  for (const key of DATA_KEYS) {
-    data[key] = loadFromStorage(STORAGE_KEYS[key], null)
-  }
+/** Old-format backup built from this browser's localStorage. */
+export function readBrowserData(now = new Date()) {
+  const sales = loadFromStorage(STORAGE_KEYS.sales, [])
   return {
-    app: BACKUP_APP_ID,
-    version: BACKUP_VERSION,
+    app: BROWSER_BACKUP_APP,
+    version: 1,
     exportedAt: now.toISOString(),
-    data
-  }
-}
-
-export function backupFilename(now = new Date()) {
-  const stamp = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}_${pad2(now.getHours())}${pad2(now.getMinutes())}`
-  return `afcc-backup-${stamp}.json`
-}
-
-/**
- * Checks a parsed backup file. Pure — does not touch storage.
- * @returns {{ ok: true, summary } | { ok: false, error }}
- */
-export function validateBackup(backup) {
-  if (!backup || typeof backup !== 'object') {
-    return { ok: false, error: 'This file is not a valid backup.' }
-  }
-  if (backup.app !== BACKUP_APP_ID) {
-    return { ok: false, error: 'This file is not an A Family Care Clinic POS backup.' }
-  }
-  if (typeof backup.version !== 'number' || backup.version > BACKUP_VERSION) {
-    return { ok: false, error: 'This backup was made by a newer version of the app.' }
-  }
-  const data = backup.data
-  if (!data || typeof data !== 'object') {
-    return { ok: false, error: 'The backup has no data.' }
-  }
-  for (const key of ['services', 'medicines', 'sales', 'users']) {
-    if (data[key] !== null && data[key] !== undefined && !Array.isArray(data[key])) {
-      return { ok: false, error: `The backup's "${key}" section is damaged.` }
+    data: {
+      services: loadFromStorage(STORAGE_KEYS.services, null),
+      medicines: loadFromStorage(STORAGE_KEYS.medicines, null),
+      sales: Array.isArray(sales) ? sales : [],
+      receiptCounter: loadFromStorage(STORAGE_KEYS.receiptCounter, null)
     }
   }
-  const users = data.users || []
-  if (!users.some(u => u && u.role === 'admin' && u.pinHash && u.salt)) {
-    return { ok: false, error: 'The backup has no admin user, so nobody could log in after restoring.' }
-  }
+}
 
+/** Counts shown before importing. */
+export function summarizeBrowserBackup(backup) {
+  const d = backup?.data || {}
   return {
-    ok: true,
-    summary: {
-      exportedAt: backup.exportedAt,
-      sales: (data.sales || []).length,
-      services: (data.services || []).length,
-      medicines: (data.medicines || []).length,
-      users: users.length
-    }
+    sales: Array.isArray(d.sales) ? d.sales.length : 0,
+    services: Array.isArray(d.services) ? d.services.length : 0,
+    medicines: Array.isArray(d.medicines) ? d.medicines.length : 0
   }
 }
 
-/** Replaces all stored data with the backup. Call validateBackup first. */
-export function restoreBackup(backup) {
-  const { data } = backup
-  for (const key of DATA_KEYS) {
-    if (data[key] === null || data[key] === undefined) removeFromStorage(STORAGE_KEYS[key])
-    else if (!saveToStorage(STORAGE_KEYS[key], data[key])) {
-      throw new Error(`Could not write "${key}" (browser storage unavailable or full).`)
-    }
+/** True when this browser still holds data from the old version. */
+export function hasBrowserData() {
+  const s = summarizeBrowserBackup(readBrowserData())
+  return s.sales > 0 || s.medicines > 0 || s.services > 0
+}
+
+const IMPORTED_KEY = 'importedToServerAt'
+
+export const markImported = (now = new Date()) => saveToStorage(IMPORTED_KEY, now.toISOString())
+export const importedAt = () => loadFromStorage(IMPORTED_KEY, null)
+
+/** What kind of backup file is this? 'server' | 'browser' | null */
+export function backupKind(parsed) {
+  if (parsed?.app === SERVER_BACKUP_APP) return 'server'
+  if (parsed?.app === BROWSER_BACKUP_APP) return 'browser'
+  return null
+}
+
+/** Counts shown before restoring a server backup. */
+export function summarizeServerBackup(backup) {
+  const d = backup?.data || {}
+  const months = d.sales && typeof d.sales === 'object' ? Object.values(d.sales) : []
+  return {
+    exportedAt: backup?.exportedAt,
+    months: months.length,
+    sales: months.reduce((n, list) => n + (Array.isArray(list) ? list.length : 0), 0),
+    services: d.catalog?.services?.length || 0,
+    medicines: d.catalog?.medicines?.length || 0,
+    users: Array.isArray(d.users) ? d.users.length : 0
   }
-  removeFromStorage(STORAGE_KEYS.draft)
-}
-
-export function markBackupDone(now = new Date()) {
-  saveToStorage(STORAGE_KEYS.lastBackupAt, now.toISOString())
-}
-
-export function lastBackupAt() {
-  return loadFromStorage(STORAGE_KEYS.lastBackupAt, null)
 }

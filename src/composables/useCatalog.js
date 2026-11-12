@@ -1,25 +1,20 @@
-import { ref, watch } from 'vue'
-import { STORAGE_KEYS, loadFromStorage, saveToStorage } from '@/utils/storage'
-import { applyStockChange } from '@/utils/inventory'
-import {
-  DEFAULT_SERVICES,
-  DEFAULT_MEDICINES,
-  DEFAULT_SERVICE_ICON,
-  MEDICINE_ICON
-} from '@/data/defaultCatalog'
+import { ref } from 'vue'
+import { api, apiError } from '@/api/client'
+import { DEFAULT_SERVICE_ICON, MEDICINE_ICON } from '@/data/defaultCatalog'
 
 /**
- * Shared catalog state (services & medicines), persisted to localStorage.
+ * Catalog (services & medicines), loaded from and saved to the POS server.
+ * Module-level singleton so every page shows the same data.
  *
- * Module-level singleton: POS and Sales History see the same data, so e.g.
- * voiding a sale in Sales History restores stock shown in the POS.
+ * Stock changes from sales and voids happen on the server; call load()
+ * afterwards to show the new numbers.
  */
 
-const services = ref(loadFromStorage(STORAGE_KEYS.services, DEFAULT_SERVICES))
-const medicines = ref(loadFromStorage(STORAGE_KEYS.medicines, DEFAULT_MEDICINES))
-
-watch(services, value => saveToStorage(STORAGE_KEYS.services, value), { deep: true })
-watch(medicines, value => saveToStorage(STORAGE_KEYS.medicines, value), { deep: true })
+const services = ref([])
+const medicines = ref([])
+const loading = ref(false)
+const loaded = ref(false)
+const loadError = ref('')
 
 const listFor = (type) => (type === 'service' ? services : medicines)
 
@@ -28,24 +23,35 @@ export const typeLabel = (type) => (type === 'service' ? 'Service' : 'Medicine')
 export const iconFor = (item, type) =>
   type === 'service' ? (item.icon || DEFAULT_SERVICE_ICON) : MEDICINE_ICON
 
-/** Keep only known fields with sane types. */
-function normalise(type, data) {
-  const item = {
-    name: String(data.name || '').trim(),
-    price: Number(data.price) || 0
-  }
-  if (type === 'medicine') {
-    const stock = data.stock === '' || data.stock === null || data.stock === undefined
-      ? null
-      : Math.max(0, Math.floor(Number(data.stock)) || 0)
-    item.stock = stock
-    item.lowStockAt = Number.isFinite(Number(data.lowStockAt)) && data.lowStockAt !== ''
-      ? Math.max(0, Math.floor(Number(data.lowStockAt)))
-      : 10
-    item.expiry = data.expiry || ''
-  }
-  return item
+const replaceItem = (type, item) => {
+  const list = listFor(type)
+  const i = list.value.findIndex(x => x.id === item.id)
+  if (i === -1) list.value.push(item)
+  else list.value.splice(i, 1, item)
 }
+
+async function load() {
+  loading.value = true
+  try {
+    const { data } = await api.get('/catalog')
+    services.value = data.services
+    medicines.value = data.medicines
+    loaded.value = true
+    loadError.value = ''
+  } catch (err) {
+    loadError.value = apiError(err)
+  } finally {
+    loading.value = false
+  }
+}
+
+/** Loads once (pages call this on open). */
+function ensureLoaded() {
+  if (!loaded.value && !loading.value) load()
+}
+
+const ok = (extra = {}) => ({ ok: true, ...extra })
+const fail = (err) => ({ ok: false, error: apiError(err) })
 
 export function useCatalog() {
   const isNameTaken = (type, name, exceptId = null) => {
@@ -55,51 +61,62 @@ export function useCatalog() {
 
   const findItem = (type, id) => listFor(type).value.find(i => i.id === id) || null
 
-  const addItem = (type, data) => {
-    const item = { id: `${type === 'service' ? 's' : 'm'}${Date.now()}`, ...normalise(type, data) }
-    listFor(type).value.push(item)
-    return item
+  const addItem = async (type, data) => {
+    try {
+      const { data: item } = await api.post(`/catalog/${type}`, data)
+      replaceItem(type, item)
+      return ok({ item })
+    } catch (err) {
+      return fail(err)
+    }
   }
 
-  const updateItem = (type, id, data) => {
-    const item = findItem(type, id)
-    if (!item) return null
-    Object.assign(item, normalise(type, { ...item, ...data }))
-    return item
+  const updateItem = async (type, id, data) => {
+    try {
+      const { data: item } = await api.put(`/catalog/${type}/${encodeURIComponent(id)}`, data)
+      replaceItem(type, item)
+      return ok({ item })
+    } catch (err) {
+      return fail(err)
+    }
   }
 
-  const deleteItem = (type, id) => {
-    const list = listFor(type)
-    list.value = list.value.filter(i => i.id !== id)
+  const deleteItem = async (type, id) => {
+    try {
+      await api.delete(`/catalog/${type}/${encodeURIComponent(id)}`)
+      const list = listFor(type)
+      list.value = list.value.filter(i => i.id !== id)
+      return ok()
+    } catch (err) {
+      return fail(err)
+    }
   }
 
-  /** Deduct stock for a confirmed sale. */
-  const deductStock = (items) => {
-    medicines.value = applyStockChange(medicines.value, items, -1)
-  }
-
-  /** Put stock back when a sale is voided. */
-  const restoreStock = (items) => {
-    medicines.value = applyStockChange(medicines.value, items, +1)
-  }
-
-  /** Re-read from storage (after a backup restore). */
-  const reload = () => {
-    services.value = loadFromStorage(STORAGE_KEYS.services, DEFAULT_SERVICES)
-    medicines.value = loadFromStorage(STORAGE_KEYS.medicines, DEFAULT_MEDICINES)
+  /** mode 'add' (received units) or 'set' (exact count) */
+  const setStock = async (id, mode, quantity) => {
+    try {
+      const { data: item } = await api.post(`/catalog/medicine/${encodeURIComponent(id)}/stock`, { mode, quantity })
+      replaceItem('medicine', item)
+      return ok({ item })
+    } catch (err) {
+      return fail(err)
+    }
   }
 
   return {
     services,
     medicines,
+    loading,
+    loaded,
+    loadError,
+    load,
+    ensureLoaded,
     listFor,
     findItem,
     isNameTaken,
     addItem,
     updateItem,
     deleteItem,
-    deductStock,
-    restoreStock,
-    reload
+    setStock
   }
 }

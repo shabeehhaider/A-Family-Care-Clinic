@@ -1,6 +1,6 @@
 <template>
   <BaseModal :open="open" title="Void Sale" variant="red" :icon="ICON" @close="emit('close')">
-    <form v-if="sale" novalidate @submit.prevent="submit">
+    <form v-if="sale" novalidate @submit.prevent="onSubmit">
       <div class="sale-summary">
         <div><span>Receipt</span><strong>{{ sale.receiptNumber }}</strong></div>
         <div><span>Total</span><strong>Rs. {{ formatAmount(sale.grandTotal) }}</strong></div>
@@ -56,7 +56,7 @@
 
       <div class="form-actions">
         <button type="button" class="btn btn-secondary" @click="emit('close')">Cancel</button>
-        <button type="submit" class="btn btn-danger" :disabled="!reason.trim()">
+        <button type="submit" class="btn btn-danger" :disabled="!reason.trim() || busy">
           <svg class="btn-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" :d="ICON" />
           </svg>
@@ -71,20 +71,24 @@
 import { ref, computed, watch, useId } from 'vue'
 import BaseModal from '@/components/BaseModal.vue'
 import PasswordInput from '@/components/PasswordInput.vue'
-import { useAuth, userRef } from '@/composables/useAuth'
+import { useAuth } from '@/composables/useAuth'
 import { formatAmount } from '@/utils/format'
 
 const props = defineProps({
   open: { type: Boolean, default: false },
-  sale: { type: Object, default: null }
+  sale: { type: Object, default: null },
+  /**
+   * async ({ reason, approverId?, approverPin? }) => ({ ok } | { ok: false, error })
+   * The server checks the admin PIN; the dialog stays open on error.
+   */
+  submit: { type: Function, required: true }
 })
 
-/** confirm({ reason, by, requestedBy }) */
-const emit = defineEmits(['confirm', 'close'])
+const emit = defineEmits(['close'])
 
 const ICON = 'M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636'
 
-const { users, currentUser, isAdmin, verifyAdmin } = useAuth()
+const { users, isAdmin } = useAuth()
 
 const uid = useId()
 const ids = { reason: `${uid}-reason`, admin: `${uid}-admin`, pin: `${uid}-pin` }
@@ -93,6 +97,7 @@ const reason = ref('')
 const adminId = ref('')
 const pin = ref('')
 const error = ref('')
+const busy = ref(false)
 
 const admins = computed(() => users.value.filter(u => u.role === 'admin'))
 
@@ -101,32 +106,26 @@ watch(() => props.open, (isOpen) => {
   reason.value = ''
   pin.value = ''
   error.value = ''
+  busy.value = false
   adminId.value = admins.value[0]?.id || ''
 })
 
-const submit = () => {
+const onSubmit = async () => {
   error.value = ''
   if (!reason.value.trim()) {
     error.value = 'A reason is required.'
     return
   }
-
-  let approver = currentUser.value
-  if (!isAdmin.value) {
-    const result = verifyAdmin(adminId.value, pin.value)
-    if (!result.ok) {
-      error.value = result.error
-      pin.value = ''
-      return
-    }
-    approver = result.user
-  }
-
-  emit('confirm', {
+  busy.value = true
+  const result = await props.submit({
     reason: reason.value.trim(),
-    by: userRef(approver),
-    requestedBy: isAdmin.value ? null : userRef(currentUser.value)
+    ...(isAdmin.value ? {} : { approverId: adminId.value, approverPin: pin.value })
   })
+  busy.value = false
+  if (!result.ok) {
+    error.value = result.error
+    pin.value = ''
+  }
 }
 </script>
 

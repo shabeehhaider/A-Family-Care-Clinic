@@ -51,29 +51,61 @@
         </ul>
       </section>
 
-      <!-- ================= Backup ================= -->
-      <section class="card" aria-labelledby="backup-heading">
+      <!-- ================= Data ================= -->
+      <section class="card" aria-labelledby="data-heading">
         <div class="card-head">
           <div>
-            <h2 id="backup-heading" class="card-title">Backup &amp; Restore</h2>
+            <h2 id="data-heading" class="card-title">Data &amp; Backups</h2>
             <p class="card-subtitle">
-              Your data is saved only on this computer. Download a backup every week and keep it safe
-              (USB, email or Google Drive).
+              All sales are saved on the POS server, organised by month. The server also makes a backup copy every day.
             </p>
           </div>
         </div>
 
-        <div :class="['backup-status', backupStale ? 'stale' : 'ok']" role="status">
-          <template v-if="lastBackup">Last backup: <strong>{{ formatIso(lastBackup) }}</strong></template>
-          <template v-else><strong>No backup has been made yet.</strong></template>
-          <span v-if="backupStale"> — please back up now.</span>
+        <p v-if="dataError" class="form-error" role="alert">{{ dataError }}</p>
+
+        <div class="backup-status ok" role="status">
+          <div>Saved in: <code class="path">{{ info.location || '…' }}</code></div>
+          <div>
+            Last automatic backup:
+            <strong>{{ info.lastAutoBackup ? formatDay(info.lastAutoBackup) : 'not yet' }}</strong>
+            <span v-if="info.backupKeepDays"> (daily copies kept for {{ info.backupKeepDays }} days)</span>
+          </div>
         </div>
 
+        <!-- Monthly files -->
+        <h3 class="sub-title">Monthly sales files</h3>
+        <div v-if="months.length === 0" class="empty-months">No sales yet.</div>
+        <table v-else class="months-table">
+          <thead>
+            <tr>
+              <th scope="col">Month</th>
+              <th scope="col" class="num">Sales</th>
+              <th scope="col" class="num">Voided</th>
+              <th scope="col" class="num">Revenue</th>
+              <th scope="col"><span class="sr-only">Download</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="m in months" :key="m.month">
+              <td>{{ monthLabel(m.month) }}</td>
+              <td class="num">{{ m.sales }}</td>
+              <td class="num">{{ m.voided }}</td>
+              <td class="num">Rs. {{ formatAmount(m.revenue) }}</td>
+              <td class="month-actions">
+                <button type="button" class="row-btn" :aria-label="`Download ${monthLabel(m.month)} as Excel CSV`" @click="downloadMonthCsv(m.month)">Excel (CSV)</button>
+                <button type="button" class="row-btn" :aria-label="`Download ${monthLabel(m.month)} data file`" @click="downloadMonthJson(m.month)">Data file</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <!-- Backup / restore -->
         <div class="backup-actions">
           <div class="backup-box">
-            <h3>Download backup</h3>
-            <p>Saves all your sales, items and staff to one file.</p>
-            <button type="button" class="btn btn-success" @click="downloadBackup">
+            <h3>Download full backup</h3>
+            <p>One file with all months, items and staff. Keep a copy on a USB drive or in email.</p>
+            <button type="button" class="btn btn-success" :disabled="busy" @click="downloadBackup">
               <svg class="btn-icon" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
               </svg>
@@ -83,16 +115,36 @@
 
           <div class="backup-box">
             <h3>Restore from backup</h3>
-            <p>Brings back your data from a backup file. This replaces what is on this computer now.</p>
+            <p>Brings back data from a backup file. The server keeps a copy of the current data first.</p>
             <label class="btn btn-secondary file-btn">
               <svg class="btn-icon" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
               </svg>
               Choose Backup File…
-              <input ref="fileInput" type="file" accept=".json,application/json" class="sr-only" @change="onFileChosen" />
+              <input type="file" accept=".json,application/json" class="sr-only" @change="onFileChosen" />
             </label>
             <p v-if="restoreError" class="form-error" role="alert">{{ restoreError }}</p>
           </div>
+        </div>
+
+        <!-- One-time import from the old browser-only version -->
+        <div v-if="browserData" class="import-box">
+          <h3>Data from the old version on this computer</h3>
+          <p>
+            This browser still has <strong>{{ browserData.sales }}</strong> sales,
+            <strong>{{ browserData.services }}</strong> services and <strong>{{ browserData.medicines }}</strong> medicines
+            from before the server.
+            <template v-if="imported"> Imported on {{ formatIso(imported) }}.</template>
+          </p>
+          <label class="checkbox-row">
+            <input v-model="importReplaceCatalog" type="checkbox" />
+            Also replace the server's services and medicines with these
+          </label>
+          <button type="button" class="btn btn-primary import-btn" :disabled="busy" @click="importFromBrowser(null)">
+            {{ imported ? 'Import Again' : 'Import into Server' }}
+          </button>
+          <p class="form-hint">Sales already on the server are skipped, so nothing is counted twice.</p>
+          <p v-if="importResult" class="import-result" role="status">{{ importResult }}</p>
         </div>
       </section>
     </main>
@@ -155,47 +207,45 @@
       <div v-if="restore.summary" class="restore-summary">
         <p>Backup from <strong>{{ formatIso(restore.summary.exportedAt) || 'unknown date' }}</strong> contains:</p>
         <ul>
-          <li><strong>{{ restore.summary.sales }}</strong> sales</li>
+          <li><strong>{{ restore.summary.sales }}</strong> sales in <strong>{{ restore.summary.months }}</strong> months</li>
           <li><strong>{{ restore.summary.services }}</strong> services, <strong>{{ restore.summary.medicines }}</strong> medicines</li>
           <li><strong>{{ restore.summary.users }}</strong> users</li>
         </ul>
         <p class="restore-warning">
-          Everything on this computer now will be replaced, including sales made after this backup.
+          Staff, items and the months in this backup will replace what is on the server now.
+          The server saves a copy of the current data first. Everyone will need to log in again.
         </p>
-        <label class="checkbox-row">
-          <input v-model="restore.saveCurrentFirst" type="checkbox" />
-          Save a copy of the current data first (recommended)
-        </label>
       </div>
+      <p v-if="restoreError" class="form-error" role="alert">{{ restoreError }}</p>
       <div class="form-actions">
         <button type="button" class="btn btn-secondary" @click="cancelRestore">Cancel</button>
-        <button type="button" class="btn btn-danger" @click="doRestore">Replace All Data</button>
+        <button type="button" class="btn btn-danger" :disabled="busy" @click="doRestore">Restore</button>
       </div>
     </BaseModal>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import AppHeader from '@/components/AppHeader.vue'
 import BaseModal from '@/components/BaseModal.vue'
 import PasswordInput from '@/components/PasswordInput.vue'
 import { useAuth } from '@/composables/useAuth'
 import { useCatalog } from '@/composables/useCatalog'
+import { api, apiError } from '@/api/client'
 import {
-  createBackup, backupFilename, validateBackup, restoreBackup, markBackupDone, lastBackupAt
+  readBrowserData, summarizeBrowserBackup, hasBrowserData, markImported, importedAt,
+  backupKind, summarizeServerBackup
 } from '@/utils/backup'
-import { downloadTextFile } from '@/utils/csv'
-import { formatIso } from '@/utils/format'
+import { buildSalesCsv, downloadTextFile } from '@/utils/csv'
+import { formatAmount, formatIso, parseDateInputValue } from '@/utils/format'
 
 const ICONS = {
   user: 'M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z',
   key: 'M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z',
   warning: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z'
 }
-
-const BACKUP_STALE_DAYS = 7
 
 const router = useRouter()
 const auth = useAuth()
@@ -219,13 +269,13 @@ const openAddUser = () => {
   Object.assign(userForm, { open: true, name: '', role: 'cashier', pin: '', pin2: '', error: '' })
 }
 
-const saveUser = () => {
+const saveUser = async () => {
   userForm.error = ''
   if (userForm.pin !== userForm.pin2) {
     userForm.error = "PINs don't match. Please try again."
     return
   }
-  const result = auth.createUser({ name: userForm.name, role: userForm.role, pin: userForm.pin })
+  const result = await auth.createUser({ name: userForm.name, role: userForm.role, pin: userForm.pin })
   if (!result.ok) {
     userForm.error = result.error
     return
@@ -239,13 +289,13 @@ const openResetPin = (user) => {
   Object.assign(pinForm, { open: true, user, pin: '', pin2: '', error: '' })
 }
 
-const savePin = () => {
+const savePin = async () => {
   pinForm.error = ''
   if (pinForm.pin !== pinForm.pin2) {
     pinForm.error = "PINs don't match. Please try again."
     return
   }
-  const result = auth.resetPin(pinForm.user.id, pinForm.pin)
+  const result = await auth.resetPin(pinForm.user.id, pinForm.pin)
   if (!result.ok) {
     pinForm.error = result.error
     return
@@ -253,33 +303,74 @@ const savePin = () => {
   pinForm.open = false
 }
 
-const removeUser = (u) => {
+const removeUser = async (u) => {
   if (!canDelete(u)) return
   if (!window.confirm(`Delete user "${u.name}"?\n\nTheir past sales keep their name.`)) return
-  const result = auth.deleteUser(u.id)
+  const result = await auth.deleteUser(u.id)
   if (!result.ok) alert(result.error)
 }
 
-// ---------- Backup ----------
-const lastBackup = ref(lastBackupAt())
+// ---------- Data: server info & monthly files ----------
+const info = ref({})
+const months = ref([])
+const dataError = ref('')
+const busy = ref(false)
 
-const backupStale = computed(() => {
-  if (!lastBackup.value) return true
-  return Date.now() - Date.parse(lastBackup.value) > BACKUP_STALE_DAYS * 86400000
-})
+async function loadData() {
+  try {
+    const [infoRes, monthsRes] = await Promise.all([api.get('/data/info'), api.get('/data/months')])
+    info.value = infoRes.data
+    months.value = monthsRes.data
+    dataError.value = ''
+  } catch (err) {
+    dataError.value = apiError(err)
+  }
+}
 
-const downloadBackup = () => {
-  const now = new Date()
-  const json = JSON.stringify(createBackup(now), null, 2)
-  downloadTextFile(backupFilename(now), json, 'application/json')
-  markBackupDone(now)
-  lastBackup.value = now.toISOString()
+onMounted(loadData)
+
+const monthLabel = (key) => {
+  const [y, m] = key.split('-').map(Number)
+  return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+}
+
+const formatDay = (value) =>
+  parseDateInputValue(value)?.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) || value
+
+const downloadMonthJson = async (month) => {
+  try {
+    const { data } = await api.get(`/data/months/${month}`)
+    downloadTextFile(`sales-${month}.json`, JSON.stringify(data, null, 2), 'application/json')
+  } catch (err) {
+    dataError.value = apiError(err)
+  }
+}
+
+const downloadMonthCsv = async (month) => {
+  try {
+    const { data } = await api.get(`/data/months/${month}`)
+    downloadTextFile(`sales-${month}.csv`, buildSalesCsv(data), 'text/csv;charset=utf-8')
+  } catch (err) {
+    dataError.value = apiError(err)
+  }
+}
+
+// ---------- Full backup ----------
+const downloadBackup = async () => {
+  busy.value = true
+  try {
+    const { data } = await api.get('/data/backup')
+    downloadTextFile(`afcc-server-backup-${data.exportedAt.slice(0, 10)}.json`, JSON.stringify(data, null, 2), 'application/json')
+  } catch (err) {
+    dataError.value = apiError(err)
+  } finally {
+    busy.value = false
+  }
 }
 
 // ---------- Restore ----------
-const fileInput = ref(null)
 const restoreError = ref('')
-const restore = reactive({ open: false, backup: null, summary: null, saveCurrentFirst: true })
+const restore = reactive({ open: false, backup: null, summary: null })
 
 const onFileChosen = async (event) => {
   restoreError.value = ''
@@ -291,44 +382,78 @@ const onFileChosen = async (event) => {
   try {
     parsed = JSON.parse(await file.text())
   } catch {
-    restoreError.value = 'This file could not be read as a backup (not valid JSON).'
+    restoreError.value = 'This file could not be read as a backup.'
     return
   }
 
-  const result = validateBackup(parsed)
-  if (!result.ok) {
-    restoreError.value = result.error
+  const kind = backupKind(parsed)
+  if (kind === 'browser') {
+    // Backup made by the old browser-only version: import (merge) instead
+    const s = summarizeBrowserBackup(parsed)
+    if (!window.confirm(`This backup is from the old version (${s.sales} sales).\n\nImport it into the server? Sales already there are skipped.`)) return
+    await importFromBrowser(parsed)
     return
   }
-  Object.assign(restore, { open: true, backup: parsed, summary: result.summary, saveCurrentFirst: true })
+  if (kind !== 'server') {
+    restoreError.value = 'This file is not a POS backup.'
+    return
+  }
+  Object.assign(restore, { open: true, backup: parsed, summary: summarizeServerBackup(parsed) })
 }
 
 const cancelRestore = () => {
   Object.assign(restore, { open: false, backup: null, summary: null })
 }
 
-const doRestore = () => {
+const doRestore = async () => {
+  busy.value = true
+  restoreError.value = ''
   try {
-    if (restore.saveCurrentFirst) {
-      const now = new Date()
-      downloadTextFile(
-        backupFilename(now).replace('afcc-backup-', 'afcc-before-restore-'),
-        JSON.stringify(createBackup(now), null, 2),
-        'application/json'
-      )
-    }
-    restoreBackup(restore.backup)
+    await api.post('/data/restore', restore.backup)
   } catch (err) {
-    restoreError.value = `Restore failed: ${err.message}`
-    cancelRestore()
+    restoreError.value = apiError(err)
     return
+  } finally {
+    busy.value = false
   }
-
   cancelRestore()
-  catalog.reload()
-  auth.reload() // logs out: restored users may differ
   alert('Backup restored. Please log in again.')
+  await auth.reload() // staff may have changed
   router.replace({ name: 'Login' })
+  catalog.load()
+}
+
+// ---------- Import from the old browser-only version ----------
+const browserData = ref(hasBrowserData() ? summarizeBrowserBackup(readBrowserData()) : null)
+const imported = ref(importedAt())
+const importReplaceCatalog = ref(true)
+const importResult = ref('')
+
+/** `file` = parsed old-format backup file, or null to use this browser's data */
+const importFromBrowser = async (file) => {
+  busy.value = true
+  importResult.value = ''
+  try {
+    const { data } = await api.post('/data/import-browser', {
+      backup: file || readBrowserData(),
+      replaceCatalog: importReplaceCatalog.value
+    })
+    if (!file) {
+      markImported()
+      imported.value = importedAt()
+    }
+    importResult.value = `Imported ${data.imported} sales` +
+      (data.skipped ? ` (${data.skipped} already on the server were skipped)` : '') +
+      (data.catalogReplaced ? '; services and medicines updated.' : '.')
+    if (file) alert(importResult.value)
+    await Promise.all([loadData(), catalog.load()])
+  } catch (err) {
+    const message = apiError(err)
+    if (file) restoreError.value = message
+    else importResult.value = `Import failed: ${message}`
+  } finally {
+    busy.value = false
+  }
 }
 </script>
 
@@ -572,6 +697,92 @@ code {
   border-radius: 0.25rem;
 }
 
+.backup-status {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.path {
+  word-break: break-all;
+}
+
+.sub-title {
+  margin: 0.5rem 0 0.5rem;
+  font-weight: 700;
+  color: #111827;
+}
+
+.empty-months {
+  margin-bottom: 1rem;
+  font-size: 0.875rem;
+  color: #9ca3af;
+}
+
+.months-table {
+  width: 100%;
+  margin-bottom: 1.25rem;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.months-table th {
+  padding: 0.5rem 0.75rem;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-align: left;
+}
+
+.months-table td {
+  padding: 0.625rem 0.75rem;
+  border-top: 1px solid #f1f5f9;
+}
+
+.months-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.month-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.375rem;
+  flex-wrap: wrap;
+}
+
+.import-box {
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px dashed #93c5fd;
+  border-radius: 0.75rem;
+  background: #eff6ff;
+}
+
+.import-box h3 {
+  font-weight: 700;
+  color: #1e3a8a;
+}
+
+.import-box p {
+  margin-top: 0.25rem;
+  font-size: 0.875rem;
+  color: #1f2937;
+}
+
+.import-btn {
+  flex: 0 0 auto;
+  margin-top: 0.75rem;
+}
+
+.import-result {
+  margin-top: 0.5rem;
+  font-weight: 600;
+  color: #065f46;
+}
+
 .restore-summary ul {
   margin: 0.5rem 0 0.75rem 1.25rem;
   list-style: disc;
@@ -617,6 +828,16 @@ code {
 
   .backup-actions {
     grid-template-columns: 1fr;
+  }
+
+  .months-table th:nth-child(3),
+  .months-table td:nth-child(3) {
+    display: none;
+  }
+
+  .months-table td,
+  .months-table th {
+    padding: 0.5rem;
   }
 
   .user-row {

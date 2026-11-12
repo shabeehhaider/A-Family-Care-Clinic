@@ -1,162 +1,145 @@
-import { ref, computed, watch } from 'vue'
-import { STORAGE_KEYS, loadFromStorage, saveToStorage, loadSession, saveSession } from '@/utils/storage'
-import { hashPin, randomSalt, isValidPin } from '@/utils/crypto'
+import { ref, computed } from 'vue'
+import { api, apiError, getToken, setToken, onUnauthorized } from '@/api/client'
 
 /**
- * Users, PIN login and roles. Module-level singleton.
+ * Login state (module-level singleton), backed by the POS server.
  *
- * Roles:
- *  - admin:   everything, incl. catalog editing, voids, users, backup/restore
- *  - cashier: sell and view sales history (reprint)
- *
- * Users live in localStorage (PINs salted + hashed); the logged-in user id is
- * in sessionStorage, so closing the browser logs out.
+ * Roles (enforced by the server):
+ *  - admin:   everything, incl. catalog/stock, voids, users, data & backups
+ *  - cashier: sell, view sales history, reprint
  */
 
-const MAX_ATTEMPTS = 5
-const LOCKOUT_MS = 30_000
+const users = ref([]) // public list { id, name, role } for the login screen / approvals
+const hasUsers = ref(false)
+const currentUser = ref(null)
+const ready = ref(false)
 
-const users = ref(loadUsers())
-const currentUserId = ref(loadSession())
-const failedAttempts = new Map() // userId -> { count, lockedUntil }
-
-function loadUsers() {
-  const list = loadFromStorage(STORAGE_KEYS.users, [])
-  return Array.isArray(list) ? list : []
-}
-
-watch(users, value => saveToStorage(STORAGE_KEYS.users, value), { deep: true })
-
-const currentUser = computed(() => users.value.find(u => u.id === currentUserId.value) || null)
 const isAdmin = computed(() => currentUser.value?.role === 'admin')
-const hasUsers = computed(() => users.value.length > 0)
 const adminCount = computed(() => users.value.filter(u => u.role === 'admin').length)
 
-/** Public, safe-to-store reference to a user (no PIN data). */
+/** Public, safe-to-store reference to a user. */
 export const userRef = (user) => (user ? { id: user.id, name: user.name, role: user.role } : null)
 
-function checkPin(user, pin) {
-  return !!user && hashPin(String(pin), user.salt) === user.pinHash
+let initPromise = null
+
+async function refreshStatus() {
+  const { data } = await api.get('/auth/status')
+  hasUsers.value = data.hasUsers
+  users.value = data.users
 }
 
-/** Seconds remaining in a lockout, or 0. */
-function lockoutRemaining(userId) {
-  const entry = failedAttempts.get(userId)
-  if (!entry?.lockedUntil) return 0
-  const ms = entry.lockedUntil - Date.now()
-  if (ms <= 0) {
-    failedAttempts.delete(userId)
-    return 0
+/** Loads status and restores the session. Safe to call many times. */
+function init() {
+  if (!initPromise) {
+    initPromise = (async () => {
+      try {
+        await refreshStatus()
+        if (getToken()) {
+          try {
+            currentUser.value = (await api.get('/auth/me')).data.user
+          } catch {
+            setToken(null)
+            currentUser.value = null
+          }
+        }
+      } finally {
+        ready.value = true
+      }
+    })()
+    // let a failed start (server down) be retried
+    initPromise.catch(() => { initPromise = null })
   }
-  return Math.ceil(ms / 1000)
+  return initPromise
 }
 
-function recordFailure(userId) {
-  const entry = failedAttempts.get(userId) || { count: 0, lockedUntil: 0 }
-  entry.count++
-  if (entry.count >= MAX_ATTEMPTS) {
-    entry.count = 0
-    entry.lockedUntil = Date.now() + LOCKOUT_MS
-  }
-  failedAttempts.set(userId, entry)
+function logout() {
+  setToken(null)
+  currentUser.value = null
 }
+
+// Server says the token is no longer valid → log out
+onUnauthorized(() => {
+  currentUser.value = null
+})
+
+const ok = (extra = {}) => ({ ok: true, ...extra })
+const fail = (err) => ({ ok: false, error: apiError(err) })
 
 export function useAuth() {
-  /**
-   * @returns {{ ok: true } | { ok: false, error: string }}
-   */
-  const createUser = ({ name, role, pin }) => {
-    const cleanName = String(name || '').trim()
-    if (!cleanName) return { ok: false, error: 'Name is required.' }
-    if (!isValidPin(pin)) return { ok: false, error: 'PIN must be 4–6 digits.' }
-    if (users.value.some(u => u.name.toLowerCase() === cleanName.toLowerCase())) {
-      return { ok: false, error: 'A user with this name already exists.' }
+  const setup = async (name, pin) => {
+    try {
+      const { data } = await api.post('/auth/setup', { name, pin })
+      setToken(data.token)
+      currentUser.value = data.user
+      await refreshStatus()
+      return ok()
+    } catch (err) {
+      return fail(err)
     }
-    const salt = randomSalt()
-    const user = {
-      id: `u${Date.now()}`,
-      name: cleanName,
-      role: role === 'admin' ? 'admin' : 'cashier',
-      salt,
-      pinHash: hashPin(pin, salt),
-      createdAt: new Date().toISOString()
+  }
+
+  const login = async (userId, pin) => {
+    try {
+      const { data } = await api.post('/auth/login', { userId, pin })
+      setToken(data.token)
+      currentUser.value = data.user
+      return ok()
+    } catch (err) {
+      return fail(err)
     }
-    users.value.push(user)
-    return { ok: true, user }
   }
 
-  const resetPin = (userId, pin) => {
-    if (!isValidPin(pin)) return { ok: false, error: 'PIN must be 4–6 digits.' }
-    const user = users.value.find(u => u.id === userId)
-    if (!user) return { ok: false, error: 'User not found.' }
-    user.salt = randomSalt()
-    user.pinHash = hashPin(pin, user.salt)
-    return { ok: true }
-  }
-
-  const deleteUser = (userId) => {
-    const user = users.value.find(u => u.id === userId)
-    if (!user) return { ok: false, error: 'User not found.' }
-    if (user.id === currentUserId.value) return { ok: false, error: "You can't delete yourself." }
-    if (user.role === 'admin' && adminCount.value <= 1) {
-      return { ok: false, error: "You can't delete the last admin." }
+  // ---------- user management (admin) ----------
+  const createUser = async ({ name, role, pin }) => {
+    try {
+      const { data } = await api.post('/users', { name, role, pin })
+      await refreshStatus()
+      return ok({ user: data })
+    } catch (err) {
+      return fail(err)
     }
-    users.value = users.value.filter(u => u.id !== userId)
-    return { ok: true }
   }
 
-  const login = (userId, pin) => {
-    const wait = lockoutRemaining(userId)
-    if (wait) return { ok: false, error: `Too many wrong PINs. Try again in ${wait}s.` }
-
-    const user = users.value.find(u => u.id === userId)
-    if (!checkPin(user, pin)) {
-      recordFailure(userId)
-      const lock = lockoutRemaining(userId)
-      return { ok: false, error: lock ? `Too many wrong PINs. Try again in ${lock}s.` : 'Wrong PIN.' }
+  const resetPin = async (userId, pin) => {
+    try {
+      await api.post(`/users/${encodeURIComponent(userId)}/pin`, { pin })
+      return ok()
+    } catch (err) {
+      return fail(err)
     }
-    failedAttempts.delete(userId)
-    currentUserId.value = user.id
-    saveSession(user.id)
-    return { ok: true }
   }
 
-  const logout = () => {
-    currentUserId.value = null
-    saveSession(null)
-  }
-
-  /** Admin approval for a cashier's action (e.g. void). Returns the admin or null. */
-  const verifyAdmin = (userId, pin) => {
-    const wait = lockoutRemaining(userId)
-    if (wait) return { ok: false, error: `Too many wrong PINs. Try again in ${wait}s.` }
-    const user = users.value.find(u => u.id === userId && u.role === 'admin')
-    if (!checkPin(user, pin)) {
-      recordFailure(userId)
-      return { ok: false, error: 'Wrong admin PIN.' }
+  const deleteUser = async (userId) => {
+    try {
+      await api.delete(`/users/${encodeURIComponent(userId)}`)
+      await refreshStatus()
+      return ok()
+    } catch (err) {
+      return fail(err)
     }
-    failedAttempts.delete(userId)
-    return { ok: true, user }
   }
 
-  /** Re-read from storage (after a backup restore); logs out. */
-  const reload = () => {
-    users.value = loadUsers()
+  /** After a restore: users may have changed, so log out and reload. */
+  const reload = async () => {
     logout()
+    await refreshStatus()
   }
 
   return {
     users,
+    hasUsers,
     currentUser,
     isAdmin,
-    hasUsers,
     adminCount,
+    ready,
+    init,
+    refreshStatus,
+    setup,
+    login,
+    logout,
     createUser,
     resetPin,
     deleteUser,
-    login,
-    logout,
-    verifyAdmin,
     reload
   }
 }

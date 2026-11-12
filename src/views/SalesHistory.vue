@@ -3,16 +3,9 @@
     <AppHeader />
 
     <main class="history-main no-print">
-      <!-- Backup reminder (admins) -->
-      <div v-if="showBackupReminder" class="backup-reminder" role="status">
-        <svg class="w-5 h-5 flex-shrink-0" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-        </svg>
-        <span>
-          {{ lastBackup ? `Last backup: ${formatIso(lastBackup)}.` : 'No backup yet.' }}
-          Please back up so you don't lose your sales.
-        </span>
-        <router-link to="/settings" class="reminder-link">Back up now</router-link>
+      <div v-if="loadError" class="load-error" role="alert">
+        <span>Couldn't load sales: {{ loadError }}</span>
+        <button type="button" class="reminder-link" @click="fetchSales">Retry</button>
       </div>
 
       <!-- Title + search -->
@@ -125,7 +118,8 @@
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
               d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
           </svg>
-          <p v-if="allSales.length === 0">No sales recorded yet. Confirmed sales from the POS will appear here.</p>
+          <p v-if="loading">Loading sales…</p>
+          <p v-else-if="allSales.length === 0 && range === 'all'">No sales recorded yet. Confirmed sales from the POS will appear here.</p>
           <p v-else>No sales match this filter.</p>
         </div>
 
@@ -275,7 +269,7 @@
     />
     <Receipt v-else :data="reprintData" reprint />
 
-    <VoidSaleModal :open="voidTarget !== null" :sale="voidTarget" @confirm="confirmVoid" @close="voidTarget = null" />
+    <VoidSaleModal :open="voidTarget !== null" :sale="voidTarget" :submit="voidSale" @close="voidTarget = null" />
   </div>
 </template>
 
@@ -285,6 +279,7 @@
  * admin approval), CSV export and a printable sales report.
  */
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { api, apiError } from '@/api/client'
 import AppHeader from '@/components/AppHeader.vue'
 import Receipt from '@/components/pos/Receipt.vue'
 import DayReport from '@/components/pos/DayReport.vue'
@@ -292,16 +287,13 @@ import VoidSaleModal from '@/components/sales/VoidSaleModal.vue'
 import { usePrintReceipt } from '@/composables/usePrintReceipt'
 import { useAuth } from '@/composables/useAuth'
 import { useCatalog } from '@/composables/useCatalog'
-import { STORAGE_KEYS, loadSales, saveSales } from '@/utils/storage'
 import { saleTime, itemCount, filterByRange, summarizeSales } from '@/utils/sales'
 import { buildSalesCsv, downloadTextFile } from '@/utils/csv'
-import { lastBackupAt } from '@/utils/backup'
 import {
   formatAmount, formatDateTime, formatIso, toDateInputValue, parseDateInputValue
 } from '@/utils/format'
 
 const PAGE_SIZE = 50
-const BACKUP_STALE_DAYS = 7
 
 const ICONS = {
   print: 'M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z',
@@ -309,36 +301,12 @@ const ICONS = {
 }
 
 const { currentUser, isAdmin } = useAuth()
-const { restoreStock } = useCatalog()
+const catalog = useCatalog()
 
-// ---------- Data ----------
+// ---------- Data (from the server, for the selected dates) ----------
 const allSales = ref([])
-
-const refreshSales = () => {
-  allSales.value = loadSales()
-    .filter(s => s && s.receiptNumber)
-    .sort((a, b) => saleTime(b) - saleTime(a)) // newest first
-}
-
-// Keep in sync if a sale is made in another tab
-const onStorage = (e) => {
-  if (e.key === null || e.key?.endsWith(STORAGE_KEYS.sales)) refreshSales()
-}
-
-refreshSales() // localStorage is synchronous: load before first render
-
-onMounted(() => {
-  window.addEventListener('storage', onStorage)
-})
-onUnmounted(() => window.removeEventListener('storage', onStorage))
-
-// ---------- Backup reminder ----------
-const lastBackup = ref(lastBackupAt())
-const showBackupReminder = computed(() => {
-  if (!isAdmin.value || allSales.value.length === 0) return false
-  if (!lastBackup.value) return true
-  return Date.now() - Date.parse(lastBackup.value) > BACKUP_STALE_DAYS * 86400000
-})
+const loading = ref(false)
+const loadError = ref('')
 
 // ---------- Filters ----------
 const ranges = [
@@ -398,6 +366,35 @@ const rangeLabel = computed(() => {
   }
   return ranges.find(r => r.id === range.value)?.label ?? ''
 })
+
+let fetchId = 0
+
+/** Loads the sales for the selected date range from the server. */
+async function fetchSales() {
+  const id = ++fetchId
+  const bounds = rangeBounds.value
+  loading.value = true
+  try {
+    const params = bounds ? { from: bounds[0].toISOString(), to: bounds[1].toISOString() } : {}
+    const { data } = await api.get('/sales', { params })
+    if (id !== fetchId) return // a newer request has started
+    allSales.value = data
+      .filter(s => s && s.receiptNumber)
+      .sort((a, b) => saleTime(b) - saleTime(a)) // newest first
+    loadError.value = ''
+  } catch (err) {
+    if (id === fetchId) loadError.value = apiError(err)
+  } finally {
+    if (id === fetchId) loading.value = false
+  }
+}
+
+watch(() => [range.value, customDate.value], fetchSales, { immediate: true })
+
+// Pick up sales made on other counters when coming back to this window
+const onFocus = () => fetchSales()
+onMounted(() => window.addEventListener('focus', onFocus))
+onUnmounted(() => window.removeEventListener('focus', onFocus))
 
 const filteredSales = computed(() => {
   const bounds = rangeBounds.value
@@ -471,33 +468,24 @@ const openVoid = (sale) => {
 }
 
 /**
- * Marks the sale void (kept for the audit trail, excluded from totals) and
- * puts tracked medicine stock back. Cannot be undone.
+ * Voids on the server (kept for the record, excluded from totals; tracked
+ * medicine stock is put back). Used by VoidSaleModal, which stays open on error.
  */
-const confirmVoid = ({ reason, by, requestedBy }) => {
+const voidSale = async ({ reason, approverId, approverPin }) => {
   const sale = voidTarget.value
-  voidTarget.value = null
-  if (!sale) return
-
-  // Re-read storage so a sale made in another tab isn't overwritten
-  const sales = loadSales()
-  const target = sales.find(s => s.receiptNumber === sale.receiptNumber)
-  if (!target) {
-    alert('This sale could not be found in storage.')
-    return
+  if (!sale) return { ok: false, error: 'No sale selected.' }
+  try {
+    const { data } = await api.post(`/sales/${encodeURIComponent(sale.receiptNumber)}/void`, {
+      reason, approverId, approverPin
+    })
+    const i = allSales.value.findIndex(s => s.receiptNumber === data.receiptNumber)
+    if (i !== -1) allSales.value.splice(i, 1, data)
+    voidTarget.value = null
+    if (catalog.loaded.value) catalog.load() // stock was restored
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: apiError(err) }
   }
-  if (target.voided) {
-    refreshSales()
-    return
-  }
-
-  target.voided = { at: new Date().toISOString(), reason, by, ...(requestedBy ? { requestedBy } : {}) }
-  if (!saveSales(sales)) {
-    alert('Could not save the void (browser storage is unavailable or full).')
-    return
-  }
-  restoreStock(target.items)
-  refreshSales()
 }
 
 // ---------- CSV export ----------
@@ -1238,8 +1226,8 @@ const exportCsv = () => {
   }
 }
 
-/* ---------- Backup reminder & cashier ---------- */
-.backup-reminder {
+/* ---------- Load error & cashier ---------- */
+.load-error {
   display: flex;
   align-items: center;
   gap: 0.75rem;
@@ -1251,19 +1239,27 @@ const exportCsv = () => {
   font-size: 0.875rem;
 }
 
+.load-error {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #991b1b;
+}
+
 .reminder-link {
   margin-left: auto;
   flex-shrink: 0;
   padding: 0.375rem 0.75rem;
+  border: none;
   border-radius: 0.5rem;
-  background: #d97706;
+  background: #dc2626;
+  cursor: pointer;
   color: white;
   font-weight: 600;
   text-decoration: none;
 }
 
 .reminder-link:hover {
-  background: #b45309;
+  background: #b91c1c;
 }
 
 .sale-date {
@@ -1277,7 +1273,7 @@ const exportCsv = () => {
 }
 
 @media (max-width: 640px) {
-  .backup-reminder {
+  .load-error {
     flex-wrap: wrap;
   }
 
